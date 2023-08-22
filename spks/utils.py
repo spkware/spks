@@ -129,22 +129,27 @@ def alpha_function(N, amplitude = 1, t_rise = 2, t_decay = 250, srate = 1000.,no
         kernel /= np.sum(kernel)
     return kernel
 
-def binary_spikes(spks,edges,sigma=None,kernel = None):
-    ''' Create a vector of binary spikes.
-
+def binary_spikes(spks,edges,kernel = None):
+    ''' Create a vector of binary spikes. Optionally convolve with a kernel
     binsize = 0.001
-    edges = np.arange(0,5,binsize)
-    bspks = binary_spikes(spks,edges,5)/binsize
-
+    edges = np.arange(0,5,binsize) this should be in seconds
+    bspks = binary_spikes(spks,edges)/binsize
     Joao Couto - March 2016
+    Modified by Max Melin
     '''
-    bins = [np.histogram(sp,edges)[0] for sp in spks]
-    if not sigma is None:
-        # Convolve spk trains
-        x = np.arange(np.floor(-3*sigma),np.ceil(3*sigma))
-        kernel = np.exp(-(x/sigma)**2/2)/(sigma*np.sqrt(2*np.pi))
-    if not kernel is None:
-        bins = [np.convolve(a,kernel,'same') for a in bins]
+    if kernel is not None:
+        binwidth_s = np.mean(np.diff(edges))
+        n_pad = kernel.size / 2
+
+        start_pad = np.arange(-binwidth_s * n_pad, 0, binwidth_s) + edges[0]
+        end_pad = np.arange(0, binwidth_s * n_pad, binwidth_s) + edges[-1]
+
+        padded_edges = np.concatenate((start_pad[:-1], edges, end_pad[1:]))
+
+        bins = [np.histogram(sp,padded_edges)[0] for sp in spks]
+        bins = [np.convolve(a,kernel,'valid') for a in bins] #'valid' avoids edge artifacts
+    else:
+        bins = [np.histogram(sp,edges)[0] for sp in spks]
     return np.vstack(bins)
 
 from scipy.interpolate import interp2d
