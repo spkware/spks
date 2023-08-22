@@ -131,3 +131,67 @@ Plot a chunk of data:
     if transpose:
         ret = ret.transpose([1,0])
     return ret
+
+def concatenate_binary_files(files,output_file, fix_metadata = True):
+    '''Written by Joao Couto, pnc_spks repo'''
+    dat = []
+    metadata = []
+    files = natsorted(files)
+    for f in files:
+        data, meta = load_spikeglx_binary(f)
+        dat.append(data)
+        metadata.append(meta)
+    fileSizeBytes = [m['fileSizeBytes'] for m in metadata]
+    fileTimeSecs = [m['fileTimeSecs'] for m in metadata]
+    # concatenate the binary file, this takes some time
+    # write the files
+    chunksize = 10*4096 
+    pbar = tqdm(total = np.sum(fileSizeBytes))
+    with open(output_file, 'wb') as outf:
+        for file,size in zip(files,fileSizeBytes):
+            current_pos = 0
+            pbar.set_description(os.path.basename(file))
+            with open(file, mode='rb') as f:
+                while not current_pos == size:
+                    if current_pos + chunksize < size:
+                        chunk = chunksize
+                    else:
+                        chunk = int(size - current_pos)
+                    contents = f.read(chunk)
+                    outf.write(contents)
+                    current_pos += chunk
+                    pbar.update(chunk)
+    if fix_metadata:
+        _fix_metadata(output_file, files)
+        
+def _fix_metadata(output_file, files): # for binary concatenation 
+    metadata = []
+    files = natsorted(files)
+    for f in files:
+        _, meta = load_spikeglx_binary(f)
+        metadata.append(meta)
+
+    fileSizeBytes = [m['fileSizeBytes'] for m in metadata]
+    fileTimeSecs = [m['fileTimeSecs'] for m in metadata]
+        
+    outmeta = Path(output_file).with_suffix('.meta')
+    with open(Path(files[0]).with_suffix('.meta')) as file:
+        lines = [line.rstrip() for line in file.readlines()]
+    for i,line in enumerate(lines):
+        if line.startswith('fileSizeBytes'):
+            lines[i] = 'fileSizeBytes={0:d}'.format(int(np.sum(fileSizeBytes)))
+        if line.startswith('fileTimeSecs'):
+            lines[i] = 'fileTimeSecs={0:f}'.format(np.sum(fileTimeSecs))
+    lines.append('concatenatedFiles='+' '.join(
+        [os.path.basename(f) for f in files]))
+    lines.append('concatenatedFilesOffsetBytes='+' '.join(
+        [str(int(b)) for b in np.cumsum(fileSizeBytes)]))
+    lines.append('concatenatedFilesOffsetTimeSecs='+' '.join(
+        [str(b) for b in np.cumsum(fileTimeSecs)]))
+    with open(outmeta,'w') as file:
+        for line in lines:
+            file.write(line + '\n')
+
+def split_binary_file():
+    '''splits binary file back into individual files'''
+    raise NotImplementedError()
