@@ -1,4 +1,6 @@
 from .utils import *
+from .io import *
+
 
 
 def read_spikeglx_meta(metafile):
