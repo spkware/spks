@@ -2,12 +2,13 @@ import pandas as pd
 from .io import *
 from .utils import *
 
-def read_phy_data(sortfolder,srate = 30000,bin_file=None):
+def read_phy_data(sortfolder,srate = 30000, bin_file=None, use_kilosort_results=False):
     ''' 
     Read the spike times saved as phy format.
     Does not use template data.
     Computes mean waveforms from the binary file for cluster depth.
     TODO: Add waveform stats and unit depths.
+    TODO: Put phy and ks data there if it exists.
     '''
     keys = ['spike_times',
             'spike_clusters']
@@ -21,10 +22,13 @@ def read_phy_data(sortfolder,srate = 30000,bin_file=None):
         tmp[k] = read_npy(k)
     sp = tmp['spike_times']
     clu = tmp['spike_clusters']
-    
-    cgroupsfile = pjoin(sortfolder,'cluster_group.tsv')
-    if not os.path.isfile(cgroupsfile):
-        print('Labels are from KS.')
+    uclu = np.unique(clu)
+   
+    if is_phy_curated(sortfolder) and not use_kilosort_results: 
+        print('This session has been curated. Labels are from Phy.')
+        cgroupsfile = pjoin(sortfolder,'cluster_group.tsv')
+    else:
+        print('This session has not been curated or user has forced use of kilosort results. Labels are from KS.')
         cgroupsfile = pjoin(sortfolder,'cluster_KSLabel.tsv')
     res = pd.read_csv(cgroupsfile,sep='\t',header = 0)
     
