@@ -135,6 +135,33 @@ def load_spikeglx_binary(fname, dtype=np.int16):
     nchans = meta['nSavedChans']
     return map_binary(fname,nchans,dtype=np.int16,mode = 'r'),meta
 
+def load_spikeglx_mtsdecomp(fname): # loads a compressed file for on the fly decompression
+    ''' 
+    data,meta = load_spikeglx_mtscomp(fname)
+    
+    load a compressed .cbin file with mtsdecomp() for on the fly decompression.
+    Use the .close() method to close the file when done
+
+    Inputs: 
+        fname           : path to the file
+    Outputs:
+        data            : #TODO: change
+        meta            : meta data from spikeGLX
+    
+    Max Melin, 2023
+    '''
+    name, extension = os.path.splitext(fname)
+    assert extension == '.cbin', 'Not a compressed file'
+    ext = '.meta'
+
+    metafile = name + ext
+    if not os.path.isfile(metafile):
+        raise(ValueError('File not found: ' + metafile))
+    meta = read_spikeglx_meta(metafile)
+    
+    from mtscomp import decompress
+    return decompress(Path(name).with_suffix('.ap.cbin'), Path(name).with_suffix('.ap.ch')), meta #FIXME: make compatible with all binary files (no .ap extension)
+
 def get_npix_lfp_triggered(dat,meta,onsets,dur,tpre=1,car_subtract = True):
     srate = meta['imSampRate']
     lfp = []
