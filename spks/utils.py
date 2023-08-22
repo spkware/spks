@@ -113,6 +113,10 @@ def whitening_matrix(x, fudge=1e-18):
     w = np.dot(np.dot(v, d), v.T)
     return w
 
+def gaussian_function(sigma):
+    x = np.arange(np.floor(-3*sigma),np.ceil(3*sigma)) # will always be even number of indices
+    kernel = np.exp(-(x/sigma)**2/2)/(sigma*np.sqrt(2*np.pi))
+    return kernel
 
 def alpha_function(N, amplitude = 1, t_rise = 2, t_decay = 250, srate = 1000.,norm = True):
 
