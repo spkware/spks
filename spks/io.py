@@ -54,6 +54,34 @@ def list_kilosort_result_paths(subject_dir, return_dates=False):
 
         return all_probe_dirs, dates
 
+def load_cluster_data(kilosort_path, use_phy=False):
+    """get data from a kilosort directory. A quick and dirty version of read_phy_data()
+
+    Parameters
+    ----------
+    kilosort_path : string or pathlib.Path
+        the absolute path of the kilosort results directory
+    use_phy : bool, optional
+        load_phy labels instead of kilosort labels, by default False
+
+    Returns
+    -------
+    dat
+        a dictionary with keys 'spks', 'clusters', and 'labels'
+    """
+    data = dict()
+    kilosort_path = Path(kilosort_path)
+    data['spks'] = np.load(kilosort_path / 'spike_times.npy')
+    data['clusters'] = np.load(kilosort_path / 'spike_clusters.npy')
+    if use_phy and is_phy_curated(kilosort_path):
+        cluster_filename = 'cluster_group.tsv' #this file gets modified during phy curation
+    else:
+        print('Using kilosort data (either there is no phy curation, or the user has specified that kilosort data should be used).')
+        cluster_filename = 'cluster_KSLabel.tsv'
+    data['labels'] = pd.read_csv(kilosort_path / cluster_filename, sep='\t')
+    
+    return dat
+
 def map_binary(fname,nchannels,dtype=np.int16,
                offset = 0,
                mode = 'r',nsamples = None,transpose = False):
