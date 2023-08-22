@@ -156,6 +156,53 @@ def binary_spikes(spks,edges,kernel = None):
         bins = [np.histogram(sp,edges)[0] for sp in spks]
     return np.vstack(bins)
 
+def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
+    """create aligned rasters relative to event_times
+
+    Parameters
+    ----------
+    event_times : list or ndarray
+        a list or numpy array of event times to be aligned to
+    spike_times : list or ndarray
+        a list spike times for one cluster
+    pre_seconds : float
+        grab _ seconds before event_times for alignment, by default 1
+    post_seconds : float
+        grab _ seconds after event_times for alignment, by default 2
+
+    Returns
+    -------
+    list
+        a list of aligned rasters for each event_times
+    """    
+    #TODO: add option to pass a list maximum pre and post times, so we can truncate data that bleeds into other events. Useful for multiple event alignment. 
+    event_rasters = []
+    for i, event_time in enumerate(event_times):
+        relative_spiketimes = spike_times - event_time
+        spks = relative_spiketimes[np.logical_and(relative_spiketimes <= post_seconds, relative_spiketimes >= -pre_seconds)]
+        event_rasters.append(np.array(spks))
+    return event_rasters
+
+def compute_firing_rate(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
+    '''compute the PETH for one neuron'''
+    binwidth_s = binwidth_ms/1000
+    event_times = discard_nans(event_times) 
+    
+    rasters = align_raster_to_event(event_times, 
+                                spike_times,
+                                pre_seconds,
+                                post_seconds)
+
+    #construct timebins separately for pre and post so that the alignment event occurs at the center of a timebin
+    pre_event_timebins = np.arange(-pre_seconds, 0, binwidth_s)
+    post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
+    timebin_edges = np.append(pre_event_timebins, post_event_timebins)
+
+    event_index = pre_event_timebins.size
+
+    psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) / binwidth_s # divide by binwidth to get a rate rather than count
+    return psth_matrix, event_index
+
 from scipy.interpolate import interp2d
 from scipy.signal import ellip, filtfilt,butter
 
