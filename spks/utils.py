@@ -236,3 +236,12 @@ def current_source_density(lfp,chmap, chanspacing=60, interpolate=False):
     f = interp2d(x,np.linspace(np.min(y)-chanspacing,np.max(y)+chanspacing,csd.shape[0]),csd)
     ny = np.arange(np.min(y)-chanspacing,np.max(y)+chanspacing,5.)
     return f(x,ny),smoothed_lfp[:,1:-1]
+
+def discard_nans(input_array):
+    """discards nan's from an array and throws a text warning of how many NaN's got discarded
+    """
+    if np.sum(np.isnan(input_array)) > 0:
+        print(f'Discarding {np.sum(np.isnan(input_array))} NaN''s from event_times')  #TODO: print out the specific variable name
+        return input_array[~np.isnan(input_array)]
+    else:
+        return input_array
