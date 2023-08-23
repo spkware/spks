@@ -19,19 +19,40 @@ def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, p
             device = 'cpu'
     # need to include padding also here.
     # make this accept a GPU tensor
-    T = torch.from_numpy(chunk.astype(np.float32)).T
+    if isinstance(chunk,np.ndarray):
+        dtype = chunk.dtype
+        T = torch.from_numpy(chunk.astype('float32')).T 
+    else:
+        T = chunk.T
     T = torch.nn.functional.pad(T.to(device),(padlen,padlen),'reflect') # apply padding for filter
-    aa = torch.from_numpy(np.array(a,dtype=np.float32)).to(device)
-    bb = torch.from_numpy(np.array(b,dtype=np.float32)).to(device)
+    aa = torch.from_numpy(np.array(a,dtype='float32')).to(device)
+    bb = torch.from_numpy(np.array(b,dtype='float32')).to(device)
     X = torchaudio.functional.filtfilt(T,aa,
         bb,clamp=False)
     if global_car:
         X = X-torch.median(X,axis=0).values
     X = X.T[padlen:-padlen,:]
+    if 'dtype' in dir():
+        # convert to int16 in the gpu, hoping be faster
+        if dtype.char in np.typecodes['AllInteger']:
+            X = X.type(torch.short)
     if return_gpu:
         return X
-    return X.to('cpu').numpy().astype(chunk.dtype)
+    return tensor_to_numpy(X)
 
+def tensor_to_numpy(X):
+    '''Converts a tensor to numpy array.''' 
+    return X.to('cpu').numpy()
+
+def global_car(chunk,return_gpu = True):
+    if isinstance(chunk,np.ndarray):
+        dtype = chunk.dtype
+        chunk = torch.from_numpy(chunk)
+    X = chunk.T-torch.median(chunk,axis=1).values
+    if return_gpu:
+        return X.T
+    else:
+        return tensor_to_numpy(X.T)
 
 def bandpass_filter(data,sampling_rate, lowpass, highpass,order = 3, device = None, return_gpu = True):
     '''

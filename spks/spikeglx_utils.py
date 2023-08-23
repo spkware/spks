@@ -1,7 +1,26 @@
 from .utils import *
 from .io import *
 
-
+def read_imro(imro):
+    probe_type,nchannels = [int(i) for i in imro[0].split(',')]
+    imro_table = []
+    for ln in imro[1:]:
+        imro_table.append([int(i) for i in ln.split(' ')])
+    if probe_type in [24]: # NP2 4 shank
+        keys = ['channel_id', 'shank_id',
+                'bank_id', 'reference_id', 'electrode_id']
+    elif probe_type in [21]: # NP2 1 shank
+        keys = ['channel_id',
+                'bank_mask', 'reference_id', 'electrode_id']
+    else: # assume 1.0
+        keys = ['channel_id',
+                'bank_id',
+                'reference_id',
+                'ap_gain',
+                'lf_gain',
+                'ap_highpass']
+    imro_table = pd.DataFrame(imro_table,columns=keys)
+    return probe_type,nchannels,imro_table
 
 def read_spikeglx_meta(metafile):
     '''
@@ -31,6 +50,7 @@ def read_spikeglx_meta(metafile):
     except Exception as err:
         print(err)
         pass
+    meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'])
     return meta
 
 def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):

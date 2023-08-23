@@ -4,6 +4,7 @@ import sys
 from os.path import join as pjoin
 from natsort import natsorted
 from glob import glob
+import pandas as pd
 
 def unpackbits(x,num_bits = 16):
     '''
