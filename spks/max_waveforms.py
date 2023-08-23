@@ -45,7 +45,6 @@ def __par_init_waveforms(bin_file_path, waveform_mmap_path, mmap_shape, local_ti
 
     timestamps=local_timestamps
     time_indices=local_time_indices
-    
 
     data, meta = load_spikeglx_binary(bin_file_path)
     waveforms = np.memmap(waveform_mmap_path,
@@ -71,7 +70,6 @@ def _work_extract_waveforms(time_indices, chunk_inds, flush_memory=True):
         waveforms.flush() #runs MUCH faster with no flush if sufficient memory, but no flush is much slower if memory is exceeded, which it usually is
     return
     
-
 def extract_memmapped_waveforms(binfile_path, scratch_directory, nchannels, timestamps, n_spikes_per_chunk=1000, npre=30, npost=30, chmap=None):
     """Takes an array of timestamps and extracts the waveforms on all channels. Waveforms are memory mapped to a binary
     file to overcome memory limits.
