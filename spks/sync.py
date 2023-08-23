@@ -38,3 +38,13 @@ Plot events:
         offsets[ichan] = sync_idx_offset[0][
             sync_idx_offset[1] == ichan]/srate
     return onsets,offsets
+
+
+def unpackbits(x,num_bits = 16):
+    '''
+    unpacks numbers in bits.
+    '''
+    xshape = list(x.shape)
+    x = x.reshape([-1,1])
+    to_and = 2**np.arange(num_bits).reshape([1,num_bits])
+    return (x & to_and).astype(bool).astype(int).reshape(xshape + [num_bits])

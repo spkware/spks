@@ -19,6 +19,10 @@ def read_imro(imro):
                 'ap_gain',
                 'lf_gain',
                 'ap_highpass']
+    # Add fixed gain for 2.0 probes
+    if not 'ap_gain' in keys:
+        keys.append('ap_gain')
+        [imro_table[i].append(80) for i in range(len(imro_table))]
     imro_table = pd.DataFrame(imro_table,columns=keys)
     return probe_type,nchannels,imro_table
 
@@ -50,7 +54,20 @@ def read_spikeglx_meta(metafile):
     except Exception as err:
         print(err)
         pass
-    meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'])
+    # convertion to uvolts
+    if 'imMaxInt' in meta.keys():
+        maxval = int(meta['imMaxInt'])
+    else:
+        maxval = 512
+    if 'imAiRangeMax' in meta.keys():
+        meta['conversion_factor_microV'] = 1e6*float(meta['imAiRangeMax'])/maxval
+    elif 'imAiRangeMax' in meta.keys():
+        meta['conversion_factor_microV'] = 1e6*float(meta['niAiRangeMax'])/32768
+    if 'imroTbl' in meta.keys():
+        meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'])
+        meta['conversion_factor_microV'] = meta['conversion_factor_microV']/meta['imro_table']['ap_gain'].values
+    #TODO deal with the NI gains
+    #TODO deal with LF files.
     return meta
 
 def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):

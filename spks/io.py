@@ -127,7 +127,9 @@ Plot a chunk of data:
     ret = np.memmap(fname,
                     mode=mode,
                     dtype=dt,
-                    shape = (int(nsamples),int(nchannels)))
+                    shape = (int(nsamples),int(nchannels)),
+                    order='C', 
+                    offset = offset)
     if transpose:
         ret = ret.transpose([1,0])
     return ret
