@@ -262,3 +262,5 @@ def discard_nans(input_array):
         return input_array[~np.isnan(input_array)]
     else:
         return input_array
+
+
