@@ -225,7 +225,7 @@ class RawRecording(object):
         nchannels = len(channels)
         channel_positions = []
         conversion_f = []
-        channels = tt.channel_info.channel_idx.values
+        channels = self.channel_info.channel_idx.values
         for c in [c for c in channels]:
             gain = self.channel_info.conversion_factor[self.channel_info.channel_idx == c].values
             coord = self.channel_info.channel_coord[self.channel_info.channel_idx == c].values
