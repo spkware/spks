@@ -1,6 +1,7 @@
 from .utils import *
 import torchaudio
 from scipy.signal import butter
+from .spikeglx_utils import load_spikeglx_binary
 
 @torch.no_grad()
 def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, padlen = 150):
@@ -42,7 +43,7 @@ def tensor_to_numpy(X):
     '''Converts a tensor to numpy array.''' 
     return X.to('cpu').numpy()
 
-def global_car(chunk,return_gpu = True):
+def global_car_gpu(chunk,return_gpu = True):
     if isinstance(chunk,np.ndarray):
         dtype = chunk.dtype
         chunk = torch.from_numpy(chunk)
@@ -55,7 +56,7 @@ def global_car(chunk,return_gpu = True):
     else:
         return tensor_to_numpy(X.T)
 
-def bandpass_filter(data,sampling_rate, lowpass, highpass, order = 3, device = None, return_gpu = True):
+def bandpass_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device = None, return_gpu = True):
     '''
     bandpass filter
     '''
@@ -65,11 +66,10 @@ def bandpass_filter(data,sampling_rate, lowpass, highpass, order = 3, device = N
     return filtfilt_chunk(data, a , b, device = device, return_gpu = return_gpu)
 
 
-
 class RawRecording(object): 
     def __init__(self,files, 
-                preprocessing = [lambda x: bandpass_filter(x,30000,300,5000),
-                                 lambda x: global_car(x,return_gpu=False)],
+                preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,5000),
+                                 lambda x: global_car_gpu(x,return_gpu=False)],
                 return_preprocessed = True,
                 return_voltage = False, **kwargs):
         '''
@@ -84,6 +84,7 @@ class RawRecording(object):
         self.offsets = []
         self.metadata = []
         self.conversion_factor = 1.
+        self.dtype = np.int16
         self.preprocessing = preprocessing
         self.return_preprocessed = return_preprocessed
         self.return_voltage = return_voltage
@@ -123,13 +124,13 @@ class RawRecording(object):
         offset = 0
         selidx = np.array(cols,dtype = int)
         buffer = np.zeros((len(selidx),len(rows)),dtype = self.current_pointer.dtype)
-        for ifile,(o,f) in enumerate(tt.file_sample_offsets):
+        for ifile,(o,f) in enumerate(self.file_sample_offsets):
             buffidx = np.where((selidx>=o) & (selidx<=f))[0]
             if not len(buffidx):
                 continue
-            tt._set_current_buffer(ifile)
+            self._set_current_buffer(ifile)
             fileidx = selidx[buffidx]-o
-            tmp = tt.current_pointer[fileidx][:,rows]
+            tmp = self.current_pointer[fileidx][:,rows]
             if len(tmp):
                 if return_preprocessed:
                     for func in self.preprocessing:
@@ -155,36 +156,103 @@ class RawRecording(object):
             self.offsets.append(self.current_pointer.shape[0])
             self.metadata.append(meta)
             if ifile == 0:
+                self.dtype = self.current_pointer.dtype
                 self.sampling_rate = meta['sRateHz']
                 self.channel_info = pd.DataFrame(
                     zip(meta['channel_idx'],meta['coords'],meta['conversion_factor_microV']),
                     columns = ['channel_idx','channel_coord','conversion_factor'])
         self._set_current_buffer(0)
         self.shape = (sum(self.offsets),self.current_pointer.shape[1])
-        self.file_sample_offsets = np.vstack([np.hstack([[0],np.cumsum(self.offsets)[:-1]]),
-        np.hstack([np.cumsum(self.offsets)])])
+        if len(self.offsets)>1:
+            self.file_sample_offsets = np.vstack([np.hstack([[0],np.cumsum(self.offsets)[:-1]]),
+            np.hstack([np.cumsum(self.offsets)])])
+        else:
+            self.file_sample_offsets = [[0,self.offsets[0]]]
 
     def extract_syncs(self, sync_channel = -1, unpack = True, chunksize = 600000):
         '''Syncs are extracted from the sync channel and converted into onsets and offsets.'''
         from tqdm import tqdm
+        sync_onsets = []
+        sync_offsets = []
         for i,f in enumerate(self.files):
-            self._set_current_buffer(i)
-            dat = self.current_pointer
-            chunks = chunk_indices(dat,chunksize=chunksize)
-            onsets = {}
-            offsets = {}
-            for o,f in tqdm(chunks):
-                trace = self._get_trace(range(o,f),[-1],return_preprocessed = False,return_voltage = False)
-                ons,offs = unpackbits_gpu(trace)
-                for o in ons.keys():
-                    if not o in onsets.keys():
-                        onsets[o] = []
-                    onsets[o] += ons[o]
-                for o in offs.keys():
-                    if not o in offsets.keys():
-                        offsets[o] = []
-                    offsets[o] += offs[o]
+            trace = binary_read_single_channel(f,channel_idx=-1)
+            from spks.sync import unpackbits_gpu
+            onsets,offsets = unpackbits_gpu(trace)
+            sync_onsets.append(onsets)
+            sync_offsets.append(offsets)
+        self.sync_onsets = sync_onsets
+        self.sync_offsets = sync_offsets
+        return sync_onsets,sync_offsets
 
-    def to_binary(self,filename, channels = None, as_voltage = False):
+    def to_binary(self, filename, channels = None, processed = True, chunksize = 30000*5, process_sync = True, sync_channel = -1, get_channels_mad = True):
         # create a binary file
-        pass
+        '''
+        Exports to binary file and a channelmap.
+        '''
+        if not filename.endswith('.bin'):
+            filename += '.bin'
+        from .sync import unpackbits_gpu
+        chunks = chunk_indices(self,chunksize = chunksize)
+        if not os.path.isdir(os.path.dirname(filename)):
+            os.makedirs(os.path.dirname(filename))
+        if channels is None:
+            channels = np.arange(self.shape[1])
+        # out = np.memmap(filename,
+        #                 dtype = self.dtype,
+        #                 mode = 'w+',
+        #                 shape=(self.shape[0],len(channels)))
+        old_return_preprocessed = self.return_preprocessed
+        
+        self.return_preprocessed = False
+        from tqdm import tqdm
+        sync = []
+        with open(filename,'wb') as fd:
+            for c in tqdm(chunks, desc='Exporting binary'):
+                buf = self[c[0]:c[1],:]
+                if process_sync:    # extract the sync before preprocessing
+                    sync.append(buf[:,sync_channel])
+                
+                if not channels is None: # select channels
+                    buf = buf[:,channels]
+                if processed:  # process only for the selected channels
+                    for func in self.preprocessing:
+                        buf = func(buf)
+                fd.write(np.ascontiguousarray(buf))
+            # out[c[0]:c[1],:] = buf[:]
+        self.return_preprocessed = old_return_preprocessed
+        if channels is None:
+            channels = np.arange(self.shape[1],dtype=int)
+        nchannels = len(channels)
+        channel_positions = []
+        conversion_f = []
+        channels = tt.channel_info.channel_idx.values
+        for c in [c for c in channels]:
+            gain = self.channel_info.conversion_factor[self.channel_info.channel_idx == c].values
+            coord = self.channel_info.channel_coord[self.channel_info.channel_idx == c].values
+            if len(coord):
+                channel_positions.append([c for c in coord[0]])
+                conversion_f.append(gain)
+            else:
+                channel_positions.append([None,None])
+                conversion_f.append(1.0)
+        metadata = dict(sampling_rate = self.sampling_rate,
+                        original_channels = [c for c in channels],
+                        nchannels = nchannels,
+                        channel_idx = [c for c in np.arange(nchannels,dtype=int)],
+                        channel_coords = channel_positions,
+                        channel_conversion_factor = conversion_f,
+                        file_offsets = self.file_sample_offsets) 
+        if len(sync):
+            sync = np.hstack(sync)
+            onsets,offsets = unpackbits_gpu(sync)
+
+            metadata['onsets'] = onsets
+            metadata['offsets'] = offsets
+        bin_data = map_binary(filename,metadata['nchannels'])
+        if get_channels_mad: # median absolute deviation of the first 30 seconds
+            mad_int16 = [m for m in mad(bin_data[:30000*30,:])]
+            metadata['mad_int16'] = mad_int16
+        # out.flush()
+        # del out
+        save_dict_to_h5(filename.replace('.bin','.metadata.hdf'), metadata)
+        return bin_data, metadata

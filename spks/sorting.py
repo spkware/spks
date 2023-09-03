@@ -1,11 +1,14 @@
 # Run various spike sorters using spike interface precompiled docker images
 # This should allow running it on a fast disk and copying only the relevant files over
-# The functions and paramenters should be exposed and contained in this module. 
+# The functions and parameters should be exposed and contained in this module. 
 
 try:
     import docker
 except:
     print('Could not load docker. Try pip install docker.')
+
+from .utils import *
+from .raw import *
 
 def get_si_docker_sorter(sorter = 'kilosort2_5-compiled-base'):
     '''
@@ -16,7 +19,8 @@ def get_si_docker_sorter(sorter = 'kilosort2_5-compiled-base'):
 
 class SpikeSorting(object):
     def __init__(raw_files, output_folder,
-                preprocessing = [bandpass_filter, median_referencing],
+                preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,5000),
+                                 lambda x: global_car_gpu(x,return_gpu=False)],
                 temporary_folder = None, **kwargs):
         ''' Run a spike sorter. 
     1) Creates the output folder.
