@@ -83,8 +83,7 @@ def load_cluster_data(kilosort_path, use_phy=False):
         print('Using kilosort data (either there is no phy curation, or the user has specified that kilosort data should be used).')
         cluster_filename = 'cluster_KSLabel.tsv'
     data['labels'] = pd.read_csv(kilosort_path / cluster_filename, sep='\t')
-    
-    return dat
+    return data
 
 def map_binary(fname,nchannels,dtype=np.int16,
                offset = 0,
