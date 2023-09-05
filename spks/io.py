@@ -131,10 +131,46 @@ Plot a chunk of data:
     ret = np.memmap(fname,
                     mode=mode,
                     dtype=dt,
-                    shape = (int(nsamples),int(nchannels)))
+                    shape = (int(nsamples),int(nchannels)),
+                    order='C', 
+                    offset = offset)
     if transpose:
         ret = ret.transpose([1,0])
     return ret
+
+def _binary_get_channel_chunk(bin_file_path, channel_idx, nchannels, offset = 0, nsamples = 30000*10, dtype = np.int16):
+    itemsize = np.dtype(dtype).itemsize
+    with open(bin_file_path, mode="rb") as f:
+        f.seek(offset*nchannels*itemsize,os.SEEK_SET)
+        chunk = np.fromfile(f,count = int(nchannels*nsamples), dtype = dtype)[channel_idx:-1:nchannels]
+    return chunk
+
+def _get_binary_multiproceessing_wrapper(chunk,path,channel_idx,nchannels):
+    dat = _binary_get_channel_chunk(path,channel_idx,nchannels,chunk[0],nsamples = chunk[1]-chunk[0])
+    return [chunk[0],dat]
+
+def binary_read_single_channel(bin_file_path,channel_idx,chunksize = 30000*10):
+    '''
+    A function to extract the data from the binary file.
+    '''
+    
+    from .spikeglx_utils import load_spikeglx_binary
+    data, meta = load_spikeglx_binary(bin_file_path)  # TODO: this needs to be changed to work with any binary file, not just spikeglx
+    chunks = chunk_indices(data, chunksize = chunksize)
+    nchannels = data.shape[1]
+
+    
+
+    from tqdm import tqdm    
+    with Pool(processes=cpu_count()) as pool: 
+            res = []
+            for r in tqdm(pool.imap_unordered(partial(_get_binary_multiproceessing_wrapper,
+                                                      path = bin_file_path,
+                                                      channel_idx = channel_idx,
+                                                      nchannels = nchannels), chunks), total=len(chunks)): 
+                res.append(r)
+    return np.hstack([res[i][1] for i in np.argsort([r[0] for r in res])])
+
 
 def concatenate_binary_files(files,output_file, fix_metadata = True):
     '''Written by Joao Couto, pnc_spks repo'''
@@ -199,3 +235,5 @@ def _fix_metadata(output_file, files): # for binary concatenation
 def split_binary_file():
     '''splits binary file back into individual files'''
     raise NotImplementedError()
+
+

@@ -4,17 +4,39 @@ import sys
 from os.path import join as pjoin
 from natsort import natsorted
 from glob import glob
-
-def unpackbits(x,num_bits = 16):
-    '''
-    unpacks numbers in bits.
-    '''
-    xshape = list(x.shape)
-    x = x.reshape([-1,1])
-    to_and = 2**np.arange(num_bits).reshape([1,num_bits])
-    return (x & to_and).astype(bool).astype(int).reshape(xshape + [num_bits])
-
+import pandas as pd
+import torch
 from numpy.lib.stride_tricks import as_strided
+from functools import partial
+from multiprocessing import Pool, cpu_count
+from scipy.stats import median_abs_deviation 
+
+mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
+
+
+def tensor_to_numpy(X):
+    '''Converts a tensor to numpy array.''' 
+    return X.to('cpu').numpy()
+
+def free_gpu():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+def chunk_indices(data, axis = 0, chunksize = 60000, min_chunksize = 512):
+    '''
+    Gets chunk indices for iterating over the dataset in evenly sized chunks
+    
+    indices = chunk_indices(data)
+
+    Joao Couto - May 2020
+    '''
+    chunks = np.arange(0,data.shape[axis], chunksize, dtype = int)
+    if (data.shape[1] - chunks[-1]) < min_chunksize:
+        chunks[-1] = data.shape[axis]
+    if not chunks[-1] == data.shape[axis]:
+        chunks = np.hstack([chunks, self.shape[1]])
+    return [[int(chunks[i]), int(chunks[i+1])] for i in range(len(chunks)-1)]
+
 
 def _check_arg(x, xname):
     x = np.asarray(x)
@@ -245,3 +267,29 @@ def discard_nans(input_array):
         return input_array[~np.isnan(input_array)]
     else:
         return input_array
+
+
+import h5py
+def save_dict_to_h5(filename,dictionary):
+    with h5py.File(filename,'w') as f:
+        for k in dictionary.keys():
+            if not type(metadata[k]) in [dict]:
+                f.create_dataset(k,data = dictionary[k])
+            else:
+                for o in dictionary[k].keys():
+                    f.create_dataset(k+'/'+str(o),data = dictionary[k][o])
+
+def load_dict_from_h5(filename):
+    data = {}
+    with h5py.File(filename,'r') as f:
+        for k in f.keys():        
+            if hasattr(f[k],'dims'):
+                data[k] = f[k][()]
+            else:
+                data[k] = dict()
+                for o in f[k].keys(): # is group
+                    ko = o
+                    if o.isdigit():
+                        ko = int(o)
+                    data[k][ko] = f[k][o][()]
+    return data
