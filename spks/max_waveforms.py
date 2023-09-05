@@ -3,7 +3,7 @@ from multiprocessing import Pool,cpu_count
 from functools import partial 
 import numpy as np
 import os
-from .phy_utils import load_spikeglx_binary
+from .spikeglx_utils import load_spikeglx_binary
 
 class TemporaryArrayOnDisk(np.memmap):
     """TemporaryArrayOnDisk extends np.memmap in two ways
