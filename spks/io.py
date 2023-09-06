@@ -1,8 +1,4 @@
 from .utils import *
-from natsort import natsorted
-import numpy as np 
-import pandas as pd
-import os
 import tqdm as tqdm
 
 def is_phy_curated(*sortfolders):
@@ -18,12 +14,16 @@ def is_phy_curated(*sortfolders):
         is_curated = is_curated[0]
     return is_curated
 
-def list_spikeglx_binary_paths(subject_dir, return_dates=False):
+def list_spikeglx_binary_paths(subject_dir):
     """return a list of spikeglx files present for each probe"""
     #TODO: check for missing probe data
     #TODO: add is_sorted flag to only grab sorted sessions
     bin_paths = list(Path(subject_dir).expanduser().glob('**/*.ap.bin'))
+    
+    # the probe name is the end of the file 'imecX'
     probe_names = natsorted(set([path.name for path in bin_paths])) #assumes the last folder in the path defines the probe name
+    import re
+    probe = re.search('\s*imec(\d)\s*',p).group()
 
     all_probe_dirs = []
     for probe_name in probe_names:

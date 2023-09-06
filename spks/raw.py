@@ -68,7 +68,7 @@ def bandpass_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device
 
 class RawRecording(object): 
     def __init__(self,files, 
-                preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,5000),
+                preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
                                  lambda x: global_car_gpu(x,return_gpu=False)],
                 return_preprocessed = True,
                 return_voltage = False, **kwargs):
@@ -125,7 +125,7 @@ class RawRecording(object):
         selidx = np.array(cols,dtype = int)
         buffer = np.zeros((len(selidx),len(rows)),dtype = self.current_pointer.dtype)
         for ifile,(o,f) in enumerate(self.file_sample_offsets):
-            buffidx = np.where((selidx>=o) & (selidx<=f))[0]
+            buffidx = np.where((selidx>=o) & (selidx<f))[0]
             if not len(buffidx):
                 continue
             self._set_current_buffer(ifile)
@@ -159,8 +159,8 @@ class RawRecording(object):
                 self.dtype = self.current_pointer.dtype
                 self.sampling_rate = meta['sRateHz']
                 self.channel_info = pd.DataFrame(
-                    zip(meta['channel_idx'],meta['coords'],meta['conversion_factor_microV']),
-                    columns = ['channel_idx','channel_coord','conversion_factor'])
+                    zip(meta['channel_idx'],meta['coords'],meta['channel_shank'],meta['conversion_factor_microV']),
+                    columns = ['channel_idx','channel_coord','channel_shank','conversion_factor'])
         self._set_current_buffer(0)
         self.shape = (sum(self.offsets),self.current_pointer.shape[1])
         if len(self.offsets)>1:
@@ -184,7 +184,9 @@ class RawRecording(object):
         self.sync_offsets = sync_offsets
         return sync_onsets,sync_offsets
 
-    def to_binary(self, filename, channels = None, processed = True, chunksize = 30000*5, process_sync = True, sync_channel = -1, get_channels_mad = True):
+    def to_binary(self, filename, channels = None, processed = True, 
+                  chunksize = 30000*5, process_sync = True, sync_channel = -1, 
+                  get_channels_mad = True):
         # create a binary file
         '''
         Exports to binary file and a channelmap.
@@ -225,34 +227,42 @@ class RawRecording(object):
         nchannels = len(channels)
         channel_positions = []
         conversion_f = []
+        channel_shank = []
         channels = self.channel_info.channel_idx.values
         for c in [c for c in channels]:
             gain = self.channel_info.conversion_factor[self.channel_info.channel_idx == c].values
             coord = self.channel_info.channel_coord[self.channel_info.channel_idx == c].values
+            shank = self.channel_info.channel_shank[self.channel_info.channel_idx == c].values
             if len(coord):
                 channel_positions.append([c for c in coord[0]])
                 conversion_f.append(gain)
+                channel_shank.append(shank)
             else:
                 channel_positions.append([None,None])
                 conversion_f.append(1.0)
+                channel_shank.append(0)
         metadata = dict(sampling_rate = self.sampling_rate,
                         original_channels = [c for c in channels],
                         nchannels = nchannels,
                         channel_idx = [c for c in np.arange(nchannels,dtype=int)],
                         channel_coords = channel_positions,
                         channel_conversion_factor = conversion_f,
-                        file_offsets = self.file_sample_offsets) 
+                        channel_shank = channel_shank,
+                        file_offsets = self.file_sample_offsets,
+                        filenames = [os.path.basename(f) for f in self.files]) 
         if len(sync):
             sync = np.hstack(sync)
-            onsets,offsets = unpackbits_gpu(sync)
-
-            metadata['onsets'] = onsets
-            metadata['offsets'] = offsets
+            for ifile,(o,f) in enumerate(self.file_sample_offsets):
+                onsets,offsets = unpackbits_gpu(sync[o:f-1])
+                metadata[f'file{ifile}_sync_onsets'] = onsets
+                metadata[f'file{ifile}_sync_offsets'] = offsets
+            
+        from .io import map_binary
         bin_data = map_binary(filename,metadata['nchannels'])
         if get_channels_mad: # median absolute deviation of the first 30 seconds
             mad_int16 = [m for m in mad(bin_data[:30000*30,:])]
-            metadata['mad_int16'] = mad_int16
+            metadata['channel_mad_int16'] = mad_int16
         # out.flush()
         # del out
-        save_dict_to_h5(filename.replace('.bin','.metadata.hdf'), metadata)
+        save_dict_to_h5(filename.replace('.ap.bin','.metadata.hdf'), metadata)
         return bin_data, metadata

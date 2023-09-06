@@ -10,6 +10,8 @@ from numpy.lib.stride_tricks import as_strided
 from functools import partial
 from multiprocessing import Pool, cpu_count
 from scipy.stats import median_abs_deviation 
+from pathlib import Path
+import re
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
@@ -273,7 +275,7 @@ import h5py
 def save_dict_to_h5(filename,dictionary):
     with h5py.File(filename,'w') as f:
         for k in dictionary.keys():
-            if not type(metadata[k]) in [dict]:
+            if not type(dictionary[k]) in [dict]:
                 f.create_dataset(k,data = dictionary[k])
             else:
                 for o in dictionary[k].keys():

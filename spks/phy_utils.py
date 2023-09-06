@@ -1,6 +1,5 @@
-import pandas as pd
-from .io import *
 from .utils import *
+from .io import *
 
 def read_phy_data(sortfolder,srate = 30000, bin_file=None, use_kilosort_results=False):
     ''' 
