@@ -10,10 +10,19 @@ from numpy.lib.stride_tricks import as_strided
 from functools import partial
 from multiprocessing import Pool, cpu_count
 from scipy.stats import median_abs_deviation 
+from pathlib import Path
+import re
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
-
+def create_temporary_folder(path, prefix='spks'):
+    date = datetime.datetime.today().strftime('%Y%m%d_%H%M%S')
+    rand = ''.join(np.random.choice([a for a in 'qwertyuiopasdfghjklzxcvbnm1234567890'],size=4))
+    foldername = pjoin(path,f'{prefix}_{date}_{rand}')
+    if not os.path.exists(foldername):
+        os.makedirs(foldername)
+    return foldername 
+    
 def tensor_to_numpy(X):
     '''Converts a tensor to numpy array.''' 
     return X.to('cpu').numpy()
@@ -273,7 +282,7 @@ import h5py
 def save_dict_to_h5(filename,dictionary):
     with h5py.File(filename,'w') as f:
         for k in dictionary.keys():
-            if not type(metadata[k]) in [dict]:
+            if not type(dictionary[k]) in [dict]:
                 f.create_dataset(k,data = dictionary[k])
             else:
                 for o in dictionary[k].keys():

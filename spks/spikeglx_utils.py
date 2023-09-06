@@ -23,6 +23,9 @@ def read_imro(imro):
     if not 'ap_gain' in keys:
         keys.append('ap_gain')
         [imro_table[i].append(80) for i in range(len(imro_table))]
+    if not 'shank_id' in keys:  # other probes get shank_id of 0
+        keys.append('shank_id')
+        [imro_table[i].append(0) for i in range(len(imro_table))]
     imro_table = pd.DataFrame(imro_table,columns=keys)
     return probe_type,nchannels,imro_table
 
@@ -146,10 +149,11 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
         print('ERROR [parse_coords_from_spikeglx_metadata]: probetype {0} is not implemented.'.format(probetype))
         raise NotImplementedError('Not implemented probetype {0}'.format(probetype))
     coords = np.vstack([shank*shank_sep+pos[electrode_idx,0],
-                        pos[electrode_idx,1]]).T    
+                        pos[electrode_idx,1]]).T 
     idx = np.arange(len(coords))
     meta['coords'] = coords[connected==1,:]
     meta['channel_idx'] = idx[connected==1]
+    meta['channel_shank'] = shank[connected==1]
     return idx,coords,connected
 
 def load_spikeglx_binary(fname, dtype=np.int16):
