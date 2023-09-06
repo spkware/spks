@@ -1,5 +1,9 @@
 from .utils import *
 import tqdm as tqdm
+from pathlib import Path
+
+__KILOSORT_CLUSTERS_FILENAME = 'cluster_KSLabel.tsv'
+__PHY_CLUSTERS_FILENAME = 'cluster_group.tsv'
 
 def is_phy_curated(*sortfolders):
     """takes arbitrary number of spike sorting result folders (need to unpack list when calling) and will return a list
@@ -7,8 +11,8 @@ def is_phy_curated(*sortfolders):
     #TODO: verify this works when curation has been done
     is_curated = []
     for folder in sortfolders:
-        ksdata = pd.read_csv(Path(folder) / 'cluster_KSLabel.tsv', sep='\t',header=0)
-        phydata = pd.read_csv(Path(folder) / 'cluster_group.tsv', sep='\t', header=0)
+        ksdata = pd.read_csv(Path(folder) / __KILOSORT_CLUSTERS_FILENAME, sep='\t',header=0)
+        phydata = pd.read_csv(Path(folder) / __PHY_CLUSTERS_FILENAME, sep='\t', header=0)
         is_curated.append(not ksdata.equals(phydata))
     if len(is_curated) == 1:
         is_curated = is_curated[0]
@@ -79,8 +83,7 @@ def load_cluster_data(kilosort_path, use_phy=False):
         print('Using kilosort data (either there is no phy curation, or the user has specified that kilosort data should be used).')
         cluster_filename = 'cluster_KSLabel.tsv'
     data['labels'] = pd.read_csv(kilosort_path / cluster_filename, sep='\t')
-    
-    return dat
+    return data
 
 def map_binary(fname,nchannels,dtype=np.int16,
                offset = 0,
