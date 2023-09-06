@@ -15,7 +15,14 @@ import re
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
-
+def create_temporary_folder(path, prefix='spks'):
+    date = datetime.datetime.today().strftime('%Y%m%d_%H%M%S')
+    rand = ''.join(np.random.choice([a for a in 'qwertyuiopasdfghjklzxcvbnm1234567890'],size=4))
+    foldername = pjoin(path,f'{prefix}_{date}_{rand}')
+    if not os.path.exists(foldername):
+        os.makedirs(foldername)
+    return foldername 
+    
 def tensor_to_numpy(X):
     '''Converts a tensor to numpy array.''' 
     return X.to('cpu').numpy()
