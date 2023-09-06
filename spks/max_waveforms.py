@@ -88,7 +88,7 @@ def _work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, ch
         waveforms.flush() #runs MUCH faster with no flush if sufficient memory, but no flush is much slower if memory is exceeded, which it usually is
     return   
 
-def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, mmap_output=False, flush_memory=True, n_spikes_per_chunk=1000, npre=30, npost=30, chmap=None):
+def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, mmap_output=False, flush_memory=True, silent=False, chunksize=1000, npre=30, npost=30, chmap=None):
     """Takes an array of timestamps and extracts the waveforms on all channels. Waveforms are memory mapped to a binary
     file to overcome memory limits.
 
@@ -102,7 +102,7 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
         the number of channels in the binary data
     timestamps : ndarray
         the timestamps (in samples) of each spike to be extracted
-    n_spikes_per_chunk : int, optional
+    chunksize : int, optional
         chunk_size for parallel processing, by default 1000
     npre : int, optional
         number of samples before a spike to grab, by default 30
@@ -125,13 +125,13 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
     if chmap is None: #TODO: move chmap definition to the proper place
         chmap = np.arange(data.shape[1])
 
-    n_chunks = timestamps.size // n_spikes_per_chunk + 1
+    n_chunks = timestamps.size // chunksize + 1
     chunks = np.arange(n_chunks)
     time_indices = np.arange(-npre,npost,dtype=np.int16)
 
     chunk_inds = []
     for c in chunks:
-        inds2get = np.arange(c*n_spikes_per_chunk, (c+1)*n_spikes_per_chunk)
+        inds2get = np.arange(c*chunksize, (c+1)*chunksize)
         inds2get = inds2get[inds2get < timestamps.size] #truncate last chunk
         if len(inds2get):
             chunk_inds.append(inds2get)
@@ -152,12 +152,17 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
     mpfunc = partial(_work_extract_waveforms, data, tfile, timestamps, time_indices, chmap, flush_memory=flush_memory)
 
     ## Threading V2
-    print(f'Extracting waveforms with chunk-size {n_spikes_per_chunk}')
     with ThreadPool() as pool:
             #for _ in tqdm(pool.map(mpfunc, chunk_inds), total=len(chunk_inds)): #for tqdm iterator
             #    pass
-            for _ in tqdm(pool.imap_unordered(mpfunc, chunk_inds), total=len(chunk_inds)):
-                pass
+            if not silent:
+                print(f'Extracting waveforms with chunk-size {chunksize}')
+                for _ in tqdm(pool.imap_unordered(mpfunc, chunk_inds), total=len(chunk_inds)):
+                    pass
+            else:
+                for _ in pool.imap_unordered(mpfunc, chunk_inds): # no waitbar
+                    pass
+                
 
     return tfile
 
@@ -253,7 +258,14 @@ def deprecated_extract_memmapped_waveforms(binfile_path, scratch_directory, ncha
 
 
 
-def mean_waveforms(binfile_path, scratch_directory, nchannels, all_timestamps_listed, **extract_waveforms_kwargs):
+def extract_mean_waveforms(spike_times, data, scratch_directory, nchannels, max_n_spikes=100, **extract_waveforms_kwargs):
     """Take all_listed_timestamps which is a list of the timestamps for each cluster. 
     run extract_waveforms on them (or a subset) and return the mean"""
-    raise NotImplementedError()
+
+    print(f'Extracting mean waveforms with up to {max_n_spikes} spikes per cluster.')
+    all_waves = []
+    for s in tqdm(spike_times):
+        times_to_extract = np.random.choice(s.astype(int), size=min(s.size,max_n_spikes), replace=False)
+        waves = extract_memmapped_waveforms(data, scratch_directory, nchannels, times_to_extract, silent=True, **extract_waveforms_kwargs)
+        all_waves.append(waves)
+    return all_waves
