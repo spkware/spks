@@ -74,7 +74,7 @@ def _deprecated_work_extract_waveforms(waveforms, chunk_inds, flush_memory=True)
         waveforms.flush() #runs MUCH faster with no flush if sufficient memory, but no flush is much slower if memory is exceeded, which it usually is
     return
 
-def _work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, chunk_inds, flush_memory=True):
+def _work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, chunk_inds, flush_memory):
     """Extracts waveforms from binary file and writes them to the global variable waveforms."""
     
     spike_times = timestamps.flatten()[chunk_inds]
@@ -88,13 +88,13 @@ def _work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, ch
         waveforms.flush() #runs MUCH faster with no flush if sufficient memory, but no flush is much slower if memory is exceeded, which it usually is
     return   
 
-def extract_memmapped_waveforms(binfile_path, scratch_directory, nchannels, timestamps, n_spikes_per_chunk=1000, npre=30, npost=30, chmap=None):
+def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, mmap_output=False, flush_memory=True, n_spikes_per_chunk=1000, npre=30, npost=30, chmap=None):
     """Takes an array of timestamps and extracts the waveforms on all channels. Waveforms are memory mapped to a binary
     file to overcome memory limits.
 
     Parameters
     ----------
-    binfile_path : string or Path #TODO: make this an arraylike object (memmap or RawRecording)
+    data : Numpy "array-like" (in practice, this is usually np.memmap or spks.raw.RawRecording due to the size of the array)
         absolute path to the binary file 
     scratch_directory : string or Path
         Temporary folder for saving the memory-mapped waveforms. This should be the fastest drive availible on the computer.
@@ -120,7 +120,6 @@ def extract_memmapped_waveforms(binfile_path, scratch_directory, nchannels, time
 
     Max Melin - 2023
     """
-    data, _ = load_spikeglx_binary(binfile_path)
 
     chmap = None
     if chmap is None: #TODO: move chmap definition to the proper place
@@ -138,21 +137,27 @@ def extract_memmapped_waveforms(binfile_path, scratch_directory, nchannels, time
             chunk_inds.append(inds2get)
 
     mmap_shape = (len(timestamps),npre+npost,nchannels)
+    if mmap_output:
+        tfile = TemporaryArrayOnDisk(scratch_directory,
+                                     mode='w+',
+                                     dtype=np.int16, 
+                                     order='C',
+                                     shape = mmap_shape)
+        tfile.flush()
+        print(f'\nWaveforms mapped to {tfile.filename}')
+    else:
+        tfile = np.zeros(shape=mmap_shape, dtype=np.int16)
+        flush_memory = False
 
-    tfile = TemporaryArrayOnDisk(scratch_directory,
-                                 mode='w+',
-                                 dtype=np.int16, 
-                                 order='C',
-                                 shape = mmap_shape)
-    tfile.flush()
-    print(f'\nWaveforms mapped to {tfile.filename}')
-    mpfunc = partial(_work_extract_waveforms, data, tfile, timestamps, time_indices, chmap)
+    mpfunc = partial(_work_extract_waveforms, data, tfile, timestamps, time_indices, chmap, flush_memory=flush_memory)
 
     ## Threading V2
+    print(f'Extracting waveforms with chunk-size {n_spikes_per_chunk}')
     with ThreadPool() as pool:
             #for _ in tqdm(pool.map(mpfunc, chunk_inds), total=len(chunk_inds)): #for tqdm iterator
             #    pass
-            pool.map(mpfunc, chunk_inds)
+            for _ in tqdm(pool.imap_unordered(mpfunc, chunk_inds), total=len(chunk_inds)):
+                pass
 
     return tfile
 
