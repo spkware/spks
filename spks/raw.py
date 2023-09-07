@@ -143,6 +143,7 @@ class RawRecording(object):
         return buffer
 
     def _set_current_buffer(self,ibuffer):
+        #TODO: make thread safe by having a list of buffers
         if not self.current_index == ibuffer:
             self.current_index = ibuffer
             self.current_pointer,meta = load_spikeglx_binary(self.files[self.current_index])
