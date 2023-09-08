@@ -1,6 +1,11 @@
 from multiprocessing.pool import ThreadPool
 from .utils import *
 
+########################################################
+################EXTRACT WAVEFORMS#######################
+########################################################
+
+
 def __work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, chunk_inds, flush_memory):
     """Extracts waveforms from binary file and writes them to the global variable waveforms."""
     
@@ -143,16 +148,42 @@ def extract_waveform_set(spike_times, data, chmap=None,scratch_directory=None,
     return all_waves
 
 
+########################################################
+##########WAVEFORM METRICS AND ANALYSIS#################
+########################################################
+
 def waveforms_position(waveforms,channel_positions):
     ''' 
-    waveforms [ncluster x nsamples x nchannels]
+    Calculates the position of a unit in a set of channels using the center of mass.
+    TODO: Add support for other ways if calculating.
+
+    centerofmass,peak_channels = waveforms_position(waveforms,channel_positions)
+
+    Inputs
+    ------
+    waveforms : array [ncluster x nsamples x nchannels]
+        average waveform for a cluster 
+    channel_positions : array [nchannels x 2]
+        x and y coordinates of each channel
+    
+    Returns
+    -------
+    centerofmass: array [nchannels x 2]
+        center of mass of the waveforms 
+    peak_channels array [nchannels x 1]
+        peak channel of the waveform (the argmax of the absolute amplitude)
+
+    Joao Couto - spks 2023
     '''
     peak_to_peak = (waveforms.max(axis = 1) - waveforms.min(axis = 1))
     # the amplitude of each waveform is the max of the peak difference for all channels
     amplitude = np.abs(peak_to_peak).max(axis=1)
-    # compute the center of mass (X,Y) of the templates
+    # compute the center of mass (X,Y) of the waveforms
     centerofmass = [peak_to_peak*pos for pos in channel_positions.T]
     centerofmass = np.vstack([np.sum(t,axis =1 )/np.sum(peak_to_peak,axis = 1) 
                                         for t in centerofmass]).T
+    # the peak channel is the absolute max of the peak_to_peak
     peak_channels = np.argmax(np.abs(peak_to_peak),axis = 1)
-    return centerofmass,peak_channels
+
+    return centerofmass, peak_channels
+
