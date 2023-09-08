@@ -12,6 +12,7 @@ from multiprocessing import Pool, cpu_count
 from scipy.stats import median_abs_deviation 
 from pathlib import Path
 import re
+from tqdm import tqdm
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
@@ -22,7 +23,7 @@ def create_temporary_folder(path, prefix='spks'):
     if not os.path.exists(foldername):
         os.makedirs(foldername)
     return foldername 
-    
+
 def tensor_to_numpy(X):
     '''Converts a tensor to numpy array.''' 
     return X.to('cpu').numpy()
@@ -279,26 +280,46 @@ def discard_nans(input_array):
 
 
 import h5py
-def save_dict_to_h5(filename,dictionary):
+def save_dict_to_h5(filename,dictionary,compression = 'lzf', compression_size_threshold = 1000):
+    '''
+    Save a dictionary as a compressed hdf5 dataset.
+    filename: path to the file (IMPORTANT: this WILL overwrite without checks.)
+    dictionary: the dictionary to save
+
+    If the size of the data are larger than compression_size_threshold it will save with compression.
+    default compression is lzf (fast but little compression).
+
+    '''
+    def _save_dataset(f,key,val):
+        if sys.getsizeof(val)>compression_size_threshold:
+                compression = compression
+        else:
+            compression = None
+        f.create_dataset(str(key),data = val,compression=compression)
     with h5py.File(filename,'w') as f:
-        for k in dictionary.keys():
+        for k in tqdm(dictionary.keys()):
             if not type(dictionary[k]) in [dict]:
-                f.create_dataset(k,data = dictionary[k])
+                _save_dataset(f,k,dictionary[k])
             else:
                 for o in dictionary[k].keys():
-                    f.create_dataset(k+'/'+str(o),data = dictionary[k][o])
+                    _save_dataset(f,k+'/'+str(o),dictionary[k][o])
 
 def load_dict_from_h5(filename):
+    ''' Loads a dictionary from hdf5'''
+    #TODO: read also attributes.
     data = {}
     with h5py.File(filename,'r') as f:
         for k in f.keys():        
+            no = k
+            if no.isdigit():
+                no = int(k)
             if hasattr(f[k],'dims'):
-                data[k] = f[k][()]
+                data[no] = f[k][()]
             else:
-                data[k] = dict()
+                data[no] = dict()
                 for o in f[k].keys(): # is group
                     ko = o
                     if o.isdigit():
                         ko = int(o)
-                    data[k][ko] = f[k][o][()]
+                    data[no][ko] = f[k][o][()]
     return data

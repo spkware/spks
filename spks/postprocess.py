@@ -47,8 +47,10 @@ def get_overlapping_spikes_indices(spike_times,spike_clusters,mwaves,channel_pos
         idx = np.where(np.diff(s)<nsamples_threshold)[0]
         if len(idx):
             indices.append(org_idx[clus==aclu][idx])
+    to_delete = []
     if len(indices):
-        to_delete = np.hstack(indices) 
+        to_delete = np.hstack(indices)
+     
     # apply so we can look at cross-unit duplicates.
     org_idx = np.delete(org_idx,to_delete)
     ts = np.delete(ts,to_delete)
@@ -61,7 +63,7 @@ def get_overlapping_spikes_indices(spike_times,spike_clusters,mwaves,channel_pos
     
     # only attempt to search for duplicates for units that are within radius and do it only once
     indices = []
-    for ia,aclu in tqdm(enumerate(unique_clusters), desc='Finding duplicate spikes across units'):
+    for ia,aclu in tqdm(enumerate(unique_clusters), desc='Finding duplicate spikes across units',total=len(unique_clusters)):
         for ib,bclu in enumerate(unique_clusters):
             if (ia>ib) and (np.linalg.norm(position[ia] - position[ib]) < distance_radius):
                 # for an alternative see ecephys, this keeps the spikes in the largest unit.

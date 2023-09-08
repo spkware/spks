@@ -88,7 +88,7 @@ def _work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, ch
         waveforms.flush() #runs MUCH faster with no flush if sufficient memory, but no flush is much slower if memory is exceeded, which it usually is
     return   
 
-def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, mmap_output=False, flush_memory=True, silent=False, chunksize=1000, npre=30, npost=30, chmap=None):
+def extract_memmapped_waveforms(data, scratch_directory, timestamps, mmap_output=False, flush_memory=True, silent=False, chunksize=100, npre=30, npost=30, chmap=None):
     """Takes an array of timestamps and extracts the waveforms on all channels. Waveforms are memory mapped to a binary
     file to overcome memory limits.
 
@@ -98,8 +98,6 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
         absolute path to the binary file 
     scratch_directory : string or Path
         Temporary folder for saving the memory-mapped waveforms. This should be the fastest drive availible on the computer.
-    nchannels : int
-        the number of channels in the binary data
     timestamps : ndarray
         the timestamps (in samples) of each spike to be extracted
     chunksize : int, optional
@@ -124,6 +122,8 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
     chmap = None
     if chmap is None: #TODO: move chmap definition to the proper place
         chmap = np.arange(data.shape[1])
+    
+    nchannels = len(chmap)
 
     n_chunks = timestamps.size // chunksize + 1
     chunks = np.arange(n_chunks)
@@ -138,6 +138,7 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
 
     mmap_shape = (len(timestamps),npre+npost,nchannels)
     if mmap_output:
+        assert not scratch_directory is None, "[extract_memmapped_waveforms] - scratch needs to be a folder in mmap_output mode."
         tfile = TemporaryArrayOnDisk(scratch_directory,
                                      mode='w+',
                                      dtype=np.int16, 
@@ -157,7 +158,7 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
             #    pass
             if not silent:
                 print(f'Extracting waveforms with chunk-size {chunksize}')
-                for _ in tqdm(pool.imap_unordered(mpfunc, chunk_inds), total=len(chunk_inds)):
+                for _ in tqdm(pool.imap_unordered(mpfunc, chunk_inds), desc = 'Extracting waveforms', total=len(chunk_inds)):
                     pass
             else:
                 for _ in pool.imap_unordered(mpfunc, chunk_inds): # no waitbar
@@ -167,7 +168,7 @@ def extract_memmapped_waveforms(data, scratch_directory, nchannels, timestamps, 
     return tfile
 
 
-def deprecated_extract_memmapped_waveforms(binfile_path, scratch_directory, nchannels, timestamps, n_spikes_per_chunk=1000, npre=30, npost=30, chmap=None):
+def deprecated_extract_memmapped_waveforms(binfile_path, scratch_directory, nchannels, timestamps, n_spikes_per_chunk=50, npre=30, npost=30, chmap=None):
     """Takes an array of timestamps and extracts the waveforms on all channels. Waveforms are memory mapped to a binary
     file to overcome memory limits.
 
@@ -258,14 +259,3 @@ def deprecated_extract_memmapped_waveforms(binfile_path, scratch_directory, ncha
 
 
 
-def extract_mean_waveforms(spike_times, data, scratch_directory, nchannels, max_n_spikes=100, **extract_waveforms_kwargs):
-    """Take all_listed_timestamps which is a list of the timestamps for each cluster. 
-    run extract_waveforms on them (or a subset) and return the mean"""
-
-    print(f'Extracting mean waveforms with up to {max_n_spikes} spikes per cluster.')
-    all_waves = []
-    for s in tqdm(spike_times):
-        times_to_extract = np.random.choice(s.astype(int), size=min(s.size,max_n_spikes), replace=False)
-        waves = extract_memmapped_waveforms(data, scratch_directory, nchannels, times_to_extract, silent=True, **extract_waveforms_kwargs)
-        all_waves.append(waves)
-    return all_waves

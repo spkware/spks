@@ -130,7 +130,7 @@ class RawRecording(object):
                 continue
             self._set_current_buffer(ifile)
             fileidx = selidx[buffidx]-o
-            tmp = self.current_pointer[fileidx][:,rows]
+            tmp = self.buffers[ifile][fileidx][:,rows]
             if len(tmp):
                 if return_preprocessed:
                     for func in self.preprocessing:
@@ -142,11 +142,16 @@ class RawRecording(object):
             return (buffer.astype(np.float32) * gains[rows])
         return buffer
 
+    def _load_buffers(self):
+        self.buffers = []
+        for file in self.files:
+            self.buffers.append(load_spikeglx_binary(file)[0])
+
     def _set_current_buffer(self,ibuffer):
         #TODO: make thread safe by having a list of buffers
         if not self.current_index == ibuffer:
             self.current_index = ibuffer
-            self.current_pointer,meta = load_spikeglx_binary(self.files[self.current_index])
+            self.current_pointer = self.buffers[self.current_index]
 
     def _init_parameters(self):
         ''' This function depends on the reader. It should populate the parameters of the object.'''
@@ -162,6 +167,7 @@ class RawRecording(object):
                 self.channel_info = pd.DataFrame(
                     zip(meta['channel_idx'],meta['coords'],meta['channel_shank'],meta['conversion_factor_microV']),
                     columns = ['channel_idx','channel_coord','channel_shank','conversion_factor'])
+        self._load_buffers()
         self._set_current_buffer(0)
         self.shape = (sum(self.offsets),self.current_pointer.shape[1])
         if len(self.offsets)>1:
