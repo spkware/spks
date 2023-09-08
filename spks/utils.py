@@ -16,6 +16,35 @@ from tqdm import tqdm
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
+class TemporaryArrayOnDisk(np.memmap):
+    """TemporaryArrayOnDisk extends np.memmap in two ways
+        - provides a destructor function that will delete the memmap file when all variable references to it are gone.
+        - will accept an absolute binary path, or will randomly generate a filename if given a target directory
+
+    Max Melin - 2023
+    """
+    def __new__(cls, fast_drive_path,*args, **kwargs):
+        FILE_EXTENSION = '.bin'
+        if os.path.isdir(fast_drive_path):
+            import random
+            import string
+            FILE_STRING_LENGTH = 20 # the length of the randomly generated filename
+            random_file_name = ''.join(random.choices(string.ascii_letters, k=FILE_STRING_LENGTH)) + FILE_EXTENSION
+            filename = os.path.join(fast_drive_path, random_file_name)
+        else:
+            _, file_extension = os.path.splitext(fast_drive_path)
+            assert file_extension == FILE_EXTENSION
+            filename = fast_drive_path
+        self = super().__new__(cls, filename, *args, **kwargs)
+        return self
+
+    def __del__(self):
+        # The destructor will delete the file when the object is deleted or goes out of scope
+        # but it will not handle a system exit while the kernel is running.
+        if self._mmap:
+            self._mmap.close()
+            os.remove(self.filename)
+
 def create_temporary_folder(path, prefix='spks'):
     date = datetime.datetime.today().strftime('%Y%m%d_%H%M%S')
     rand = ''.join(np.random.choice([a for a in 'qwertyuiopasdfghjklzxcvbnm1234567890'],size=4))
