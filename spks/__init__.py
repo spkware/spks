@@ -1,4 +1,5 @@
 from .utils import *
+from .clusters import *
 from .io import *
 from .phy_utils import *
 from .spikeglx_utils import *

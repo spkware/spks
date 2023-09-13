@@ -13,6 +13,9 @@ from scipy.stats import median_abs_deviation
 from pathlib import Path
 import re
 from tqdm import tqdm
+from multiprocessing.pool import Pool,ThreadPool
+from multiprocessing import cpu_count
+import h5py as h5
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 

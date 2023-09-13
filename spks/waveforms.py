@@ -1,4 +1,3 @@
-from multiprocessing.pool import ThreadPool
 from .utils import *
 
 ########################################################
@@ -177,13 +176,13 @@ def waveforms_position(waveforms,channel_positions):
     '''
     peak_to_peak = (waveforms.max(axis = 1) - waveforms.min(axis = 1))
     # the amplitude of each waveform is the max of the peak difference for all channels
-    amplitude = np.abs(peak_to_peak).max(axis=1)
+    amplitude = np.max(peak_to_peak,axis=1) 
     # compute the center of mass (X,Y) of the waveforms
     centerofmass = [peak_to_peak*pos for pos in channel_positions.T]
     centerofmass = np.vstack([np.sum(t,axis =1 )/np.sum(peak_to_peak,axis = 1) 
                                         for t in centerofmass]).T
-    # the peak channel is the absolute max of the peak_to_peak
-    peak_channels = np.argmax(np.abs(peak_to_peak),axis = 1)
+    # the peak channel is the index of the channel that has the largest deflection
+    peak_channels = np.argmax(np.abs(waveforms).max(axis = 1), axis = 1)
 
     return centerofmass, peak_channels
 

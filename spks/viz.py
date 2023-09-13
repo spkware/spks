@@ -137,7 +137,7 @@ def plot_multichannel_data(dat, chorder, srate = 30000.,
     ax.set_frame_on(False)
     return plts,(time,offsets)
 
-def plot_footprints(waves, channel_xy,nwaves = 10, gain = (3,70),
+def plot_footprints(waves, channel_xy, gain = (3,70),
                                 srate = 30000, plotscale=None,color='k',lw=1.):
     '''Plots multichannel waveforms (shape=(nspikes,nsamples,nchannels)) or (shape=(nsamples,nchannels)).
     '''
@@ -145,11 +145,14 @@ def plot_footprints(waves, channel_xy,nwaves = 10, gain = (3,70),
     wtime = 1000.*np.arange(waves.shape[0])/float(srate)
     p = []
     ax = plt.gca()
-    if len(waves.shape) < 3:
-        # plotting mean waveforms
-        for i in range(waves.shape[1]):
+    if len(waves.shape) == 2:
+        # plotting mean waveforms (these must be average waveforms)
+        waves = waves.copy().reshape(1,*waves.shape)
+    for wv in waves:
+        for i in range(wv.shape[1]):
+            # plot each channel
             p.append(ax.plot(wtime*gain[0] + channel_xy[i,0],
-                              waves[:,i]*gain[1]+channel_xy[i,1],
+                              wv[:,i]*gain[1]+channel_xy[i,1],
                              color=color,
                              lw=lw,clip_on=False))
         miny = np.min(abs(np.diff(channel_xy[:,1])))

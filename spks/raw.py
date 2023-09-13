@@ -271,5 +271,5 @@ class RawRecording(object):
             metadata['channel_mad_int16'] = mad_int16
         # out.flush()
         # del out
-        save_dict_to_h5(filename.replace('.ap.bin','.metadata.hdf'), metadata)
+        save_dict_to_h5(filename.replace('.bin','.metadata.hdf'), metadata)
         return bin_data, metadata
