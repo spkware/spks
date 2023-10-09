@@ -13,10 +13,13 @@ colors = ['#000000',
           '#bcbd22',
           '#17becf']
 
-def plot_raster(spks,offset=0.0,height=1.0,colors='black',ax = None,**kwargs):
+def plot_raster(spks, offset=0.0, height=1.0,colors='black',ax = None, mode = 'scatter', **kwargs):
     ''' Plot a raster from sets of spiketrains.
-            - "spks" is a list of spiketrains
-            - "colors" can be an array of colors
+            - spks: is a list of spiketrains
+            - mode: can be scatter (default) or line. Lines creates a line of height defined by 'height'
+        Line mode can be used for exporting to pdf and editing more intuitively
+            - height
+            - "colors" can be an list of colors (per trial - in line mode)
         Joao Couto - January 2016
     '''
     if ax is None:
@@ -24,10 +27,17 @@ def plot_raster(spks,offset=0.0,height=1.0,colors='black',ax = None,**kwargs):
     nspks = len(spks)
     if type(colors) is str:
         colors = [colors]*nspks
-    for i,(sp,cc) in enumerate(zip(spks,colors)):
-        ax.vlines(sp,offset+(i*height),
-                  offset+((i+1)*height),
-                  colors=cc,**kwargs)
+    if mode == 'line': # for exporting to pdf and editing
+        for i,(sp,cc) in enumerate(zip(spks,colors)):
+            ax.vlines(sp,offset+(i*height),
+                    offset+((i+1)*height),
+                    colors=cc,**kwargs)
+    else: # scatter
+        a = np.hstack([i*np.ones_like(s) + offset for i,s in enumerate(spks)])
+        b = np.hstack(spks)
+        ax.scatter(b,a,marker = '|', lw = lw)
+        ax.autoscale(tight = True)
+    
 
 def plot_event_aligned_raster(event_times, spike_times, sorting='', pre_seconds=1, post_seconds=2, offset=0, ax=None, color='black', **kwargs):
     """Plot rasters from multiple trials aligned to event_times
@@ -97,6 +107,59 @@ def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_s
     #ax.set_xlim((np.min(x), np.max(x)))
     #ax.set_ylim(ax.get_ylim()[::-1]) # flip the y axis
 
+def interactive_cluster_waveforms(sp):
+    fig = plt.figure()
+    ax_waves = fig.add_axes([0.1,0.1,0.8,0.8])
+    cluster_positions,principal_channel = waveforms_position(sp.cluster_waveforms_mean,sp.channel_positions)
+    electrodes = []
+    for p in principal_channel:
+        electrodes.append(np.where(np.array([np.linalg.norm(c - sp.channel_positions[p]) for c in sp.channel_positions])<100)[0])
+
+    def plot_func(icluster = 20):
+        icluster = int(icluster)
+        clu_num = sp.unique_clusters[icluster]
+        ax_waves.cla()
+        ax_waves.plot(sp.channel_positions[:,0],sp.channel_positions[:,1],'kx',markersize = 3,alpha = 0.5)
+    
+        # wave = sp.get_cluster_waveforms(icluster,n_waveforms=50)
+        # plot_footprints(wave[:,:,electrodes[icluster]],sp.channel_positions[electrodes[icluster]],gain=[10,0.05],lw = 0.1,color='k');
+        plot_footprints(sp.cluster_waveforms_mean[clu_num][:,electrodes[clu_num]],
+                        sp.channel_positions[electrodes[clu_num]],gain=[10,0.05],color='r',lw=1,ax = ax_waves);
+        plot_footprints(sp.cluster_waveforms_mean[clu_num][:,electrodes[clu_num]],
+                        sp.channel_positions[electrodes[clu_num]],
+                        shade_data = sp.cluster_waveforms_std[clu_num][:,electrodes[clu_num]],
+                        gain=[10,0.05],color='k',lw=1,ax = ax_waves);
+        ax_waves.plot(sp.channel_positions[principal_channel[clu_num],0],
+        sp.channel_positions[principal_channel[clu_num],1],'ro',markersize = 5,alpha = 0.5)
+        wtime = (1000.*(np.arange(sp.cluster_waveforms_mean.shape[1])-sp.cluster_waveforms_mean.shape[1]/2)/30000).astype(np.float32)
+
+        ax_waves.plot(wtime*10 + sp.channel_positions[principal_channel[clu_num],0],
+                    sp.cluster_waveforms_mean[clu_num][:,principal_channel[clu_num]].squeeze()*0.05+sp.channel_positions[principal_channel[clu_num],1],
+                                clip_on=False,color = 'b')
+        ax_waves.axis('tight')
+    plot_func(icluster=20)
+
+
+    ax_select = fig.add_axes([0.25, 0.1, 0.65, 0.03])
+    from matplotlib.widgets import Slider
+    sel_slider = Slider(
+        ax=ax_select,
+        label='cluster',
+        valmin=0,
+        valmax=len(sp)-1,
+        valinit=20,
+    )
+    sel_slider.on_changed(plot_func)
+
+    def on_press(event):
+        if event.key == 'right':
+            icluster = np.clip(int(sel_slider.val) + 1,0,len(sp)-1)
+            sel_slider.set_val(icluster)
+        elif event.key == 'left':
+            icluster = np.clip(int(sel_slider.val) - 1,0,len(sp)-1)
+            sel_slider.set_val(icluster)
+
+    fig.canvas.mpl_connect('key_press_event', on_press)
 
 def plot_multichannel_data(dat, chorder, srate = 30000.,
                            offset = 1000, filterdata = False,
@@ -137,24 +200,41 @@ def plot_multichannel_data(dat, chorder, srate = 30000.,
     ax.set_frame_on(False)
     return plts,(time,offsets)
 
-def plot_footprints(waves, channel_xy, gain = (3,70),
-                                srate = 30000, plotscale=None,color='k',lw=1.):
-    '''Plots multichannel waveforms (shape=(nspikes,nsamples,nchannels)) or (shape=(nsamples,nchannels)).
+def plot_footprints(waves, channel_xy, gain = (10,0.05),shade_data = None,shade_color = 'k',shade_alpha=0.3,
+                                srate = 30000, plotscale=None, ax = None,**kwargs):
+    '''
+    Plots multichannel waveforms 
+    
+    
+    Inputs:
+    -------
+        - waves (nspikes x nsamples x nchannels) or (nsamples x nchannels)
+        - channel_xy positions (nchannels x 2)
+        - gain (2d tuple)
+        - srate (for the scale)
+        - plotscale: True to draw the scale
     '''
     import pylab as plt
-    wtime = 1000.*np.arange(waves.shape[0])/float(srate)
+    
     p = []
-    ax = plt.gca()
+    if ax is None:
+        ax = plt.gca()
     if len(waves.shape) == 2:
         # plotting mean waveforms (these must be average waveforms)
         waves = waves.copy().reshape(1,*waves.shape)
-    for wv in waves:
+    wtime = (1000.*(np.arange(waves.shape[1])-waves.shape[1]/2)/srate).astype(np.float32)
+    for iw,wv in enumerate(waves):
         for i in range(wv.shape[1]):
             # plot each channel
             p.append(ax.plot(wtime*gain[0] + channel_xy[i,0],
                               wv[:,i]*gain[1]+channel_xy[i,1],
-                             color=color,
-                             lw=lw,clip_on=False))
+                             clip_on=False,**kwargs))
+            if not shade_data is None:
+                ax.fill_between(wtime*gain[0] + channel_xy[i,0],
+                              (wv[:,i]+shade_data[:,i])*gain[1]+channel_xy[i,1],
+                              (wv[:,i]-shade_data[:,i])*gain[1]+channel_xy[i,1],alpha = shade_alpha,
+                              edgecolor = None,
+                              facecolor=shade_color)
         miny = np.min(abs(np.diff(channel_xy[:,1])))
         ax.axis([np.min(channel_xy[:,0]),
                  np.max(channel_xy[:,0])+wtime[-1]*gain[0],

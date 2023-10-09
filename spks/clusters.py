@@ -2,24 +2,42 @@ from .utils import *
 from .waveforms import *
 
 class Clusters():
-    def __init__(self,folder,
+    def __init__(self,folder = None,
                 spike_times = None, 
                 spike_clusters = None,
-                channels_positions = None, 
+                channel_positions = None, 
+                channel_map = None,
+                sampling_rate = None,
+                channel_gains = None,
                 get_waveforms = True,
                 compute_raw_templates=True):#, remove_duplicate_spikes = False):
-        '''Object to access the spike sorting results'''
+        '''
+        Object to access the spike sorting results like an array
+
+        Inputs
+        ------
+            - folder (A folder with phy results)
+            - (optional) spike_times
+            - (optional) spike_clusters
+            - (optional) channel_positions
+            - get_waveforms
+
+        Joao Couto - spks 2023
+        '''
         if type(folder) in [str]:
             folder = Path(folder)
         self.folder = folder
         # load spiketimes
-        self.spike_times = self._load_required('spike_times.npy')
+        self.spike_times = self._load_required('spike_times.npy',spike_times)
         # load each spike cluster number
-        self.spike_clusters = self._load_required('spike_clusters.npy')
-        self.unique_clusters = np.sort(np.unique(self.spike_clusters))
+        self.spike_clusters = self._load_required('spike_clusters.npy',spike_clusters)
+        unique_clusters = np.sort(np.unique(self.spike_clusters)).astype(int)
+        self.cluster_info = pd.DataFrame(dict(cluster_id = unique_clusters))
         # load the channel locations
-        self.channel_positions =  self._load_optional('channel_positions.npy')
-        self.channel_map =  self._load_optional('channel_map.npy')
+        self.channel_positions =  self._load_optional('channel_positions.npy',channel_positions)
+        self.channel_map =  self._load_optional('channel_map.npy',channel_map)
+        self.channel_gains = None
+
         # Load the amplitudes used to fit the template
         self.spike_template_amplitudes = self._load_optional('amplitudes.npy')
         # load spike templates (which template was fitted) for each spike
@@ -31,6 +49,13 @@ class Clusters():
         if not self.whitening_matrix is None:
             self.whitening_matrix = self.whitening_matrix.T
         self.cluster_groups = self._load_optional('cluster_group.tsv')
+        
+        self.cluster_waveforms_mean = None
+        self.cluster_waveforms_std = None
+        self.cluster_waveforms = None
+        self.sampling_rate = None
+
+        self.update_cluster_info()
 
         if get_waveforms:
             self.load_waveforms()
@@ -38,8 +63,14 @@ class Clusters():
         if compute_raw_templates:
             self._compute_template_amplitudes()
 
+        self.update_cluster_info()
         #if remove_duplicate_spikes:
         #    self.remove_duplicate_spikes()
+    def update_cluster_info(self): 
+        self.__dict__.update(dict(zip(list(self.cluster_info), self.cluster_info.to_numpy().T)))
+
+    def get_cluster(self,cluster_id):
+        self.spike_times[self.spike_clusters == cluster_id]
 
     def __getitem__(self, index):
         ''' returns the spiketimes for a set of clusters'''
@@ -48,7 +79,7 @@ class Clusters():
         if type(index) in [slice]:
             index = np.arange(*index.indices(len(self)))
         sp = []
-        for iclu in self.unique_clusters[index]:
+        for iclu in self.cluster_id[index]:
             sp.append(self.spike_times[self.spike_clusters == iclu])
         if len(sp) == 1:
             return sp[0]
@@ -56,15 +87,15 @@ class Clusters():
             return sp
 
     def __len__(self):
-        return len(self.unique_clusters)
+        return len(self.cluster_id)
 
     def __iter__(self):
-        for iclu in self.unique_clusters:
+        for iclu in self.cluster_id:
             yield self.spike_times[self.spike_clusters == iclu]
 
 
     def remove_duplicate_spikes(self,overwrite_phy = False):
-        from spks.postprocess import get_overlapping_spikes_indices
+        from .postprocess import get_overlapping_spikes_indices
         doubled = get_overlapping_spikes_indices(self.spike_times,self.spike_clusters, self.templates_raw, self.channel_positions)
         if not len(doubled):
             return
@@ -129,26 +160,43 @@ class Clusters():
                 self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
                 with Pool(12) as pool:
                     result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
-                                            folder = self.folder),self.unique_clusters),
-                                    desc='Computing mean waveforms', total = len(self))]
+                                            folder = self.folder),self.cluster_id),
+                                    desc='[Clusters] Computing mean waveforms', total = len(self))]
                     self.cluster_waveforms_mean = np.stack([r[0] for r in result])
                     self.cluster_waveforms_std = np.stack([r[1] for r in result])
+                from .waveforms import waveforms_position
+                self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
+                self.cluster_info['depth'] = self.cluster_position[:,1]
+                self.cluster_info['electrode'] = self.cluster_channel
+
         if not hasattr(self,'cluster_waveforms'):
-            raise(OSError('Waveforms file [cluster_waveforms.hdf] not in folder'))
+            print()
+            raise(OSError('[Clusters] - Waveforms file [cluster_waveforms.hdf] not in folder'))
 
     def _load_required(self,file,var = None):
-        path = self.folder / file
-        assert path.exists(), f'[SortedSpikes] - {path} doesnt exist'
-        return np.load(path)
+        '''
+        Loads a required variable, if the file path does not exist returns an error, 
+        unless var is specified, in that case it returns var
+        '''
+        if var is None:
+            path = self.folder / file
+            assert path.exists(), f'[Clusters] - {path} doesnt exist'
+            return np.load(path)
+        return var
 
-    def _load_optional(self,file):
-        path = self.folder / file
-        if path.exists():
-            if path.suffix == '.npy':
-                return np.load(path)
-            elif path.suffix == '.tsv':
-                return pd.read_csv(path,sep = '\t')
-        return None
+    def _load_optional(self,file,var = None):
+        '''Loads an optional variable, if the file path does not exist returns None, 
+        unless var is specified, in that case it returns var'''
+        if var is None:
+            path = self.folder / file
+            if path.exists():
+                if path.suffix == '.npy':
+                    return np.load(path)
+                elif path.suffix == '.tsv':
+                    return pd.read_csv(path,sep = '\t')
+            return None
+        else:
+            return var
 
 
 ########################################################
@@ -157,6 +205,7 @@ class Clusters():
 
 
 def _mean_std_from_cluster_waveforms(icluster,folder):
+    '''Computes the average and std of te waveforms for a specific cluster in a hdf file'''
     import h5py as h5
     with  h5.File(folder/'cluster_waveforms.hdf','r') as waveforms_file:
         mwave = np.mean(waveforms_file[str(icluster)][()],axis = 0) 

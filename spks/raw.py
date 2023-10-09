@@ -172,7 +172,7 @@ class RawRecording(object):
         self.shape = (sum(self.offsets),self.current_pointer.shape[1])
         if len(self.offsets)>1:
             self.file_sample_offsets = np.vstack([np.hstack([[0],np.cumsum(self.offsets)[:-1]]),
-            np.hstack([np.cumsum(self.offsets)])])
+            np.hstack([np.cumsum(self.offsets)])]).T
         else:
             self.file_sample_offsets = [[0,self.offsets[0]]]
 

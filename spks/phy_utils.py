@@ -64,6 +64,21 @@ def read_phy_data(sortfolder,srate = 30000, bin_file=None, use_kilosort_results=
         res['active_channels'] = activeidx
     return res
 
+def phy_replace_params_binary(phyfolder,filename,n_channels_dat = None):
+    with open(phyfolder/'params.py','r') as f:
+        params = f.read()
+    params = params.split('\n')
+
+    for i,p in enumerate(params):
+        if p.startswith('dat_path'):
+            params[i] = f"dat_path = '{filename}'"
+        if not n_channels_dat is None and p.startswith('n_channels_dat'):
+            n_channels_dat = int(n_channels_dat)
+            params[i] = f"n_channels_dat = {n_channels_dat}"
+    
+    with open(phyfolder/'params.py','w') as f:
+        f.write("\n".join(params))
+
 def read_phy_channelmap(sortfolder):
     ''' 
     

@@ -10,6 +10,53 @@ except:
 from .utils import *
 from .raw import *
 
+def get_sorting_folder_path(filename, sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                            sorting_folder_dictionary = dict(sortname = 'sorting',probename = 'probe0')):
+        '''
+        Gets the sorting folder path from a defined rule.
+
+        foldername = get_sorting_folder_path(filename)
+        '''
+        
+        filename = Path(filename)
+        if filename.is_file():
+                foldername  = filename.parent
+        # get the probename from a filename
+        probename = re.search('\s*imec(\d)\s*',str(filename))
+        if not probename is None:
+                sorting_folder_dictionary['probename'] = probename.group()
+
+        sorting_results_path = foldername
+        for f in sorting_results_path_rules:
+                if f == '..':
+                        foldername = foldername.parent
+                else:
+                        foldername = foldername.joinpath(f.format(**sorting_folder_dictionary))
+        
+        return foldername
+
+def move_sorting_results(scratch_folder, original_session_path,
+                        sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                        sorting_folder_dictionary = dict(sortname = 'sorting',probename = 'probe0')):
+        '''
+        Move spike sorting results to a standardized folder
+
+        '''
+        sorting_results_path = get_sorting_folder_path(filename = original_session_path,
+                                                       sorting_folder_dictionary=sorting_folder_dictionary,
+                                                       sorting_results_path_rules=sorting_results_path_rules)
+
+        files_to_copy = []
+        for name in ['.npy','.tsv','.hdf','.m','.mat','.py','.log','filtered_recording.*.bin']:
+                files_to_copy += scratch_folder.glob(f'*{name}')
+        if not sorting_results_path.exists():
+                sorting_results_path.mkdir(parents=True, exist_ok=True)
+        for f in tqdm(files_to_copy,desc = 'Moving files'):
+                shutil.move(f,sorting_results_path)
+
+        return sorting_results_path
+
+
 def get_si_docker_sorter(sorter = 'kilosort2_5-compiled-base'):
     '''
     Pulls docker image; right now supports only kilosort25; add support for other sorters is TODO
@@ -34,13 +81,16 @@ class SpikeSorting(object):
 '''
         pass
 
-
-
-def run_ks25(sessionfiles = [], foldername = None, temporary_folder = '/scratch', use_docker = False):
+def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch', use_docker = False,
+             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+             sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
+             do_post_processing = False):
+        using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
+                using_scratch = True
         tt = RawRecording(sessionfiles)
-        binaryfilepath = pjoin(foldername,'filtered_recording.ap.bin')
+        binaryfilepath = pjoin(foldername,f'filtered_recording.{probename}.bin')
         if not os.path.exists(os.path.dirname(binaryfilepath)):
                 os.makedirs(os.path.dirname(binaryfilepath))
         binaryfile,metadata = tt.to_binary(binaryfilepath, channels = tt.channel_info.channel_idx.values)
@@ -134,4 +184,93 @@ exit(1);
                         f.write(kilosort25_file.format(output_folder = os.path.dirname(binaryfilepath)))
                 cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
                 os.system(cmd) # easier to kill than subprocess?
+        if do_post_processing:
+                foldername = ks25_post_processing(foldername, sessionfiles,
+                                                  move =  using_scratch, 
+                                                  sorting_results_path_rules = sorting_results_path_rules,
+                                                  sorting_folder_dictionary = sorting_folder_dictionary)
         return foldername
+
+def ks25_post_processing(resultsfolder, sessionfolder, move = False,
+                        sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                        sorting_folder_dictionary = dict(sortname = 'kilosort25',probename = 'probe0')):
+        '''
+        Post processing for kilosort results
+
+        1. remove duplicates
+        2. compute_waveforms
+        3. store a sample of 1000 waveforms to disk
+        4. move the files to a new folder and if so delete the scratch folder
+
+        '''
+        # 1. remove duplicates
+        from .clusters import Clusters
+        resultsfolder = Path(resultsfolder)
+        sp = Clusters(resultsfolder)
+        sp.remove_duplicate_spikes(overwrite_phy=True)
+        # 2. compute_waveforms
+        meta = load_dict_from_h5(resultsfolder.glob('filtered_recording.*.metadata.hdf')[0])
+        
+        from .io import map_binary
+        data = map_binary(resultsfolder.glob('filtered_recording.*.bin')[0],meta['nchannels'])
+        
+        from .waveforms import extract_waveform_set
+        mwaves = extract_waveform_set(spike_times = sp,
+                                data = data,
+                                chmap = np.arange(meta['nchannels']),
+                                max_n_spikes = 1000,
+                                chunksize = 10)
+        # 3. store a sample of 1000 waveforms to disk.
+        waveforms = {}
+        for iclu,w in zip(sp.unique_clusters,mwaves):
+                waveforms[iclu] = w
+        save_dict_to_h5(resultsfolder/'cluster_waveforms.hdf',waveforms)
+        # 4. move the files to a new folder
+        if move:
+                if type(sessionfolder) in [list]:
+                        folder = sessionfolder[0]
+                        print(f'Saving to {folder}')
+                else:
+                        folder = sessionfolder
+                outputfolder = move_sorting_results(resultsfolder, folder,
+                                                sorting_results_path_rules = sorting_results_path_rules,
+                                                sorting_folder_dictionary = sorting_folder_dictionary)
+                # 5. delete the scratch
+                shutil.rmtree(resultsfolder)
+                resultsfolder = outputfolder
+        return resultsfolder
+
+from .io import list_spikeglx_binary_paths
+
+
+def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_docker = False,
+             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+             sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
+             do_post_processing = True, move = True):
+        '''
+        Sort multiprobe neuropixels recordings (will concatenate multiple sessions if a list is passed).
+        '''
+        if not type(sessions) is list:
+                sessions = [sessions]
+
+        tmp = [list_spikeglx_binary_paths(s) for s in sessions]
+        all_probe_dirs = []
+        for iprobe in range(len(tmp[0])):
+                all_probe_dirs.append([t[iprobe][0] for t in tmp])
+        results = []
+        for probepath in all_probe_dirs:
+                print('Running KILOSORT 2.5 on sessions {0}'.format(' ,'.join(probepath)))
+                results_folder = ks25_run(sessionfiles = probepath, temporary_folder = temporary_folder,
+                                                  sorting_results_path_rules = sorting_results_path_rules,
+                                                  sorting_folder_dictionary = sorting_folder_dictionary,
+                                                  do_post_processing = False,
+                                                  use_docker = use_docker)
+                print('Completed KILOSORT 2.5. Results folder: {0}'.format(results_folder))
+                if do_post_processing:
+                        results_folder = ks25_post_processing(results_folder, probepath, 
+                                                              sorting_results_path_rules = sorting_results_path_rules,
+                                                              sorting_folder_dictionary = sorting_folder_dictionary,
+                                                              move = move)
+                        print('Completed sorting for results folder: {0}'.format(results_folder))
+                results.append(results_folder)
+        return results

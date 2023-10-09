@@ -37,7 +37,7 @@ def get_overlapping_spikes_indices(spike_times,spike_clusters,mwaves,channel_pos
     clus = np.copy(spike_clusters).flatten()
 
     assert len(ts)==len(clus), "[get_overlapping_spikes_indices] - spike_clusters and spike_times don't have the same number of spikes..."
-    org_idx = np.arange(len(ts),dtype=int)
+    org_idx = np.arange(len(ts),dtype=np.uint64)
     # this needs to be done cluster by cluster
     unique_clusters = np.unique(clus)
 
@@ -79,7 +79,7 @@ def get_overlapping_spikes_indices(spike_times,spike_clusters,mwaves,channel_pos
                         # find the indices of the spikes in cluster b
                         indices.append(org_idx[clus == bclu][np.isin(ts[clus==bclu], duplicated_spikes)])
     # only delete once (unique) and export also the ones for inside each unit
-    to_delete = np.unique(np.hstack([to_delete]+indices)).flatten()
+    to_delete = np.unique(np.hstack([to_delete]+indices)).flatten().astype(np.uint64) # this should probably be unsigned 64
     print("[get_overlapping_spikes_indices] - found {0} 'double counted' of {1} spikes".format(len(to_delete),len(spike_times)))
     return to_delete
 

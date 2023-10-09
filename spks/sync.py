@@ -1,12 +1,11 @@
 from .utils import *
 
-def unpackbits_gpu(trace, num_bits = 16,return_binary = False, device = None):
+def unpackbits_gpu(trace, num_bits = 16, return_binary = False, device = 'cpu'):
     ''' 
     Faster version of unpack_npix_sync that can use the gpu. trace needs to fit in GPU memory.
     Joao Couto - spks 2023
     '''
 
-    device = 'cuda'
     if device == 'cuda':
         if not torch.cuda.is_available():
             print('Torch does not have access to the GPU; setting device to "cpu"')
@@ -90,3 +89,35 @@ def unpackbits(x,num_bits = 16):
     to_and = 2**np.arange(num_bits).reshape([1,num_bits])
     return (x & to_and).astype(bool).astype(int).reshape(xshape + [num_bits])
 
+
+def load_ni_sync_data(sessionpath,apsessions = None,device = 'cpu'):
+    '''
+    Loads NI and AP sync data for a session
+    '''
+    if apsessions is None:
+        apsessions = [sessionpath]
+    niqdsyncpath = list(Path(sessionpath).expanduser().glob('**/*.nidq.bin'))
+    if not len(niqdsyncpath):
+        print(f'Could not find nidq sync session {sessionpath}')
+        return (None,None),(None,None),None
+    else:
+        niqdsyncpath = niqdsyncpath[0]
+    # TODO make this work with other file formats.
+    from .spikeglx_utils import load_spikeglx_binary
+    sync, meta = load_spikeglx_binary(niqdsyncpath)
+    from spks.sync import unpackbits_gpu
+    onsets,offsets = unpackbits_gpu(sync[:,-1],device = device)
+    return (onsets,offsets),(sync,meta),load_ap_sync_data(apsessions[0])
+
+def load_ap_sync_data(sessionpath):
+    '''
+    Loads AP sync data for a session from extracted HDF5 data
+    '''
+    apsyncpaths = list(Path(sessionpath).expanduser().glob('**/*.*.metadata.hdf'))
+    if not len(apsyncpaths):
+        print(f'Could not find ap sync data {sessionpath}')
+        return None
+    else:
+        # sort the probes
+        apsyncdata = [load_dict_from_h5(s) for s in natsorted(apsyncpaths)]
+        return apsyncdata

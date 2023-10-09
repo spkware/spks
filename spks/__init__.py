@@ -6,3 +6,4 @@ from .spikeglx_utils import *
 from .waveforms import *
 from .raw import *
 from .viz import *
+from .sync import *

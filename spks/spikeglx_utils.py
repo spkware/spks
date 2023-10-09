@@ -52,6 +52,9 @@ def read_spikeglx_meta(metafile):
                         meta[k] = val
     # Set the sample rate depending on the recording mode
     meta['sRateHz'] = meta[meta['typeThis'][:2]+'SampRate']
+    if meta['typeThis'] == 'nidq':
+        # skip reading imro tables and all
+        return meta
     try:
         parse_coords_from_spikeglx_metadata(meta)
     except Exception as err:

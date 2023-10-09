@@ -1,6 +1,162 @@
 from .utils import *
 
 ########################################################
+##########WAVEFORM METRICS AND ANALYSIS#################
+########################################################
+
+def waveforms_position(waveforms,channel_positions):
+    ''' 
+    Calculates the position of a unit in a set of channels using the center of mass.
+    TODO: Add support for other ways if calculating the position... 
+    Or maybe wait until there is a case where this doesn't work?
+
+    centerofmass,peak_channels = waveforms_position(waveforms,channel_positions)
+
+    Inputs
+    ------
+    waveforms : array [ncluster x nsamples x nchannels]
+        average waveform for a cluster 
+    channel_positions : array [nchannels x 2]
+        x and y coordinates of each channel
+    
+    Returns
+    -------
+    centerofmass: array [nchannels x 2]
+        center of mass of the waveforms 
+    peak_channels array [nchannels x 1]
+        peak channel of the waveform (the argmax of the absolute amplitude)
+
+    Joao Couto - spks 2023
+    '''
+    peak_to_peak = (waveforms.max(axis = 1) - waveforms.min(axis = 1))
+    # the amplitude of each waveform is the max of the peak difference for all channels
+    amplitude = np.max(peak_to_peak,axis=1) 
+    # compute the center of mass (X,Y) of the waveforms
+    centerofmass = [peak_to_peak*pos for pos in channel_positions.T]
+    centerofmass = np.vstack([np.sum(t,axis =1 )/np.sum(peak_to_peak,axis = 1) 
+                                        for t in centerofmass]).T
+    # the peak channel is the index of the channel that has the largest deflection
+    peak_channels = np.argmax(np.abs(waveforms).max(axis = 1), axis = 1)
+
+    return centerofmass, peak_channels
+
+def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
+    '''
+    Computes the spike waveform metrics for a single waveform
+
+    wavemetrics = waveforms_position(waveform,npre,srate,upsample_factor = 100)
+
+    Inputs
+    ------
+    waveforms : array [nsamples]
+        average waveform for a single channel (usually the channel with the biggest waveform) 
+    npre : int
+        number of samples taken before the spike
+    srate: float
+        sampling rate used to sample the data
+    upsampling_factor: int (default 100)
+        factor to 'upsample' the waveform to avoid sampling artifacts in the quantification
+
+    Returns
+    -------
+    wavemetrics: dict 
+        trough_time: (ms) time to the trough in relation to the spike timestamp
+        trough_amplitude: trough amplitude
+        fw3m: full-witdh at 2/3 maximum 
+        trough_gradient: gradient at 0.07 from the trough  
+        peak_gradient: gradient at 0.5ms from the trough
+        peak_time: time to the peak in relation to the spike timestamp
+        peak_amplitude: amplitude of the peak
+        spike_duration: time between the trough and the peak
+        polarity:  -1 for negative waveforms, 1 for positive
+
+    Joao Couto - spks 2023
+
+    Usage example
+    -------------
+    # get the principal waveforms from Clusters
+    principal_waveforms = np.stack([w[:,p] for w,p in zip(clusters.cluster_waveforms_mean,clusters.cluster_channel)])
+
+    srate = 30000
+    npre = 30
+    # compute the waveform of each cluster
+    clumetrics = []
+    for w in tqdm(principal_waveforms):
+        clumetrics.append( compute_waveform_metrics(w,npre=30,srate=srate) )
+    clumetrics = pd.DataFrame(clumetrics)
+
+    iclu = 4
+    # plot a waveform with the trough and peak locations
+    plt.figure()
+    t = np.arange(-npre,len(waveform)-npre)/srate
+    plt.plot(t*1000,principal_waveforms[iclu].T,'k');
+
+    plt.plot(clumetrics.trough_time.iloc[iclu],clumetrics.trough_amplitude.iloc[iclu],'bo')
+    plt.plot(clumetrics.peak_time.iloc[iclu],clumetrics.peak_amplitude.iloc[iclu],'bo')
+
+
+    '''
+    t = np.arange(-npre,len(waveform)-npre)/srate
+
+    from scipy.interpolate import interp1d
+    # interpolate to a higher temporal resolution because spikes are fast, so we don't get digitized metrics..
+    spline_interp = interp1d(t,waveform, kind='quadratic') 
+    tt = np.linspace(t[0],t[-1],int((t[-1]-t[0])*srate*upsampling_factor))
+    wv = spline_interp(tt)
+    tt *= 1000 # in ms
+    # to estimate the trough we check the absolute maxima of the waveform (0.1 ms) around zero
+    # this will work also if the waveform is positive (but not well tested)
+    # it estimates the trough time, amplitude and gradient
+    # the gradient is 
+    trough_idx = np.argmax(np.abs(wv[(tt>=-0.25) & (tt<=0.25)])) + np.where((tt>=-0.25))[0][0]
+    trough_amp = wv[trough_idx]
+    trough_time = tt[trough_idx]
+    
+    # full-width at 2/3 maximum is the width of the spike at 2/3 of the maxima (lets consider the maxima the trought)
+    # lets again work in abs to try to make this more general.
+    fw3m_idx1 = np.where(np.abs(wv[(tt<=trough_time)])<=np.abs(2*trough_amp/3))[0] # where it intersects before zero
+    fw3m_idx2 = np.where(np.abs(wv[(tt>=trough_time)])<=np.abs(2*trough_amp/3))[0] # where it intersects after zero
+    if not len(fw3m_idx1) or not len(fw3m_idx2):
+        fw3m = np.nan  # this happens for artifacts..
+        print('[waveform metrics] - Waveform has no full-width at 2/3 maximum')
+    else:
+        fw3m_idx1 = fw3m_idx1[-1]  # we only need the last index
+        fw3m_idx2 = fw3m_idx2[0] + np.where(tt>=trough_time)[0][0]+1 # we only need the first index plus the offset
+        fw3m =  tt[fw3m_idx2] - tt[fw3m_idx1]
+
+    # trought gradient 
+    # the trought gradient is computed 0.07ms from the trought (as per I-Chun et al. 2020)
+    idx = np.where(tt>=(trough_time+0.07))[0][0]
+    # the gradient is in uV/ms (if the waveform is in uV)
+    trough_gradient = (wv[idx+1] - wv[idx])/(tt[idx+1]-tt[idx])
+
+    # peak gradient 
+    # the peak gradient is computed 0.5ms from the trought (as per I-Chun et al. 2020)
+    idx = np.where(tt>=(trough_time+0.5))[0][0]
+    # the gradient is in uV/ms (if the waveform is in uV)
+    peak_gradient = (wv[idx+1] - wv[idx])/(tt[idx+1]-tt[idx])
+
+    # the peak is at abs max after the trought and after crossing zero
+    # we compute the peak to be able to compute the amplitude and the spike duration
+    idx = (np.where(wv[trough_idx:]>=0)[0][0])+trough_idx
+    peak_idx = np.argmax(wv[idx:])+idx
+    peak_time = tt[peak_idx]
+    peak_amp = wv[peak_idx]
+    # spike duration is the time between trough and the peak
+    spike_duration = peak_time - trough_time
+    if spike_duration == 0: # then it is an artifact
+        spike_duration = np.nan
+    wavemetrics = dict(trough_time = trough_time,
+                    trough_amplitude  = trough_amp,
+                    fw3m = fw3m,
+                    trough_gradient = trough_gradient,
+                    peak_gradient = peak_gradient,
+                    peak_time = peak_time,
+                    peak_amplitude  = peak_amp,
+                    spike_duration = spike_duration,
+                    polarity = int(-1 if trough_amp<0 else 1))  #sign of the through is the polarity
+    return wavemetrics
+########################################################
 ################EXTRACT WAVEFORMS#######################
 ########################################################
 
@@ -134,55 +290,16 @@ def extract_waveform_set(spike_times, data, chmap=None,scratch_directory=None,
     2) This function will not consider truncated waveforms that may occur at the edges of the recording (beginning or end).
 
 
-    Max Melin -spks, 2023
+    Max Melin - spks, 2023
     """
 
     #print(f'Extracting mean waveforms with up to {max_n_spikes} spikes per cluster.')
     all_waves = []
-    for s in tqdm(spike_times):
+    for s in tqdm(spike_times,desc = 'Extracting waveforms'):
         times_to_extract = np.sort(np.random.choice(s[(s>npre) & (s<(data.shape[0]-npost))].astype(int), size=min(s.size,max_n_spikes), replace=False))
         waves = extract_memmapped_waveforms(data = data, timestamps = times_to_extract, scratch_directory = scratch_directory, 
                                             chmap = chmap, npre=npre, npost=npost, silent=True, **dict(extract_waveforms_kwargs))
         all_waves.append(waves)
     return all_waves
 
-
-########################################################
-##########WAVEFORM METRICS AND ANALYSIS#################
-########################################################
-
-def waveforms_position(waveforms,channel_positions):
-    ''' 
-    Calculates the position of a unit in a set of channels using the center of mass.
-    TODO: Add support for other ways if calculating.
-
-    centerofmass,peak_channels = waveforms_position(waveforms,channel_positions)
-
-    Inputs
-    ------
-    waveforms : array [ncluster x nsamples x nchannels]
-        average waveform for a cluster 
-    channel_positions : array [nchannels x 2]
-        x and y coordinates of each channel
-    
-    Returns
-    -------
-    centerofmass: array [nchannels x 2]
-        center of mass of the waveforms 
-    peak_channels array [nchannels x 1]
-        peak channel of the waveform (the argmax of the absolute amplitude)
-
-    Joao Couto - spks 2023
-    '''
-    peak_to_peak = (waveforms.max(axis = 1) - waveforms.min(axis = 1))
-    # the amplitude of each waveform is the max of the peak difference for all channels
-    amplitude = np.max(peak_to_peak,axis=1) 
-    # compute the center of mass (X,Y) of the waveforms
-    centerofmass = [peak_to_peak*pos for pos in channel_positions.T]
-    centerofmass = np.vstack([np.sum(t,axis =1 )/np.sum(peak_to_peak,axis = 1) 
-                                        for t in centerofmass]).T
-    # the peak channel is the index of the channel that has the largest deflection
-    peak_channels = np.argmax(np.abs(waveforms).max(axis = 1), axis = 1)
-
-    return centerofmass, peak_channels
 

@@ -22,21 +22,21 @@ def list_spikeglx_binary_paths(subject_dir):
     """return a list of spikeglx files present for each probe"""
     #TODO: check for missing probe data
     #TODO: add is_sorted flag to only grab sorted sessions
+    # recursive find ap.bin files
     bin_paths = list(Path(subject_dir).expanduser().glob('**/*.ap.bin'))
-    
-    # the probe name is the end of the file 'imecX'
-    probe_names = natsorted(set([path.name for path in bin_paths])) #assumes the last folder in the path defines the probe name
-    import re
-    probe = re.search('\s*imec(\d)\s*',p).group()
-
+    # probe number is attached to imec
+    prbs = []
+    for p in bin_paths:
+        prbs.append(re.search('\s*.imec(\d).\s*',str(p)).group())
+    # put each probe in a list
     all_probe_dirs = []
-    for probe_name in probe_names:
-        probe_dirs = [str(folder) for folder in bin_paths if folder.name == probe_name]
+    for probe in np.sort(np.unique(prbs)):
+        probe_dirs = [str(folder) for folder in bin_paths if probe in str(folder)]
         probe_dirs = natsorted(probe_dirs, key=str)
         all_probe_dirs.append(probe_dirs)
     return all_probe_dirs
 
-def list_kilosort_result_paths(subject_dir, return_dates=False):
+def list_sorting_result_paths(subject_dir, return_dates=False):
     """return a list of spike-sorting paths for each probe"""
     #TODO: add has_phy flag to only grab curated sessions
     #TODO: check for missing probe data

@@ -16,6 +16,8 @@ from tqdm import tqdm
 from multiprocessing.pool import Pool,ThreadPool
 from multiprocessing import cpu_count
 import h5py as h5
+import datetime
+import shutil
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
@@ -322,12 +324,14 @@ def save_dict_to_h5(filename,dictionary,compression = 'lzf', compression_size_th
     default compression is lzf (fast but little compression).
 
     '''
-    def _save_dataset(f,key,val):
+    def _save_dataset(f,key,val,compression = compression, compression_size_threshold = compression_size_threshold):
+        # compress if big enough.
         if sys.getsizeof(val)>compression_size_threshold:
                 compression = compression
         else:
             compression = None
         f.create_dataset(str(key),data = val,compression=compression)
+    
     with h5py.File(filename,'w') as f:
         for k in tqdm(dictionary.keys()):
             if not type(dictionary[k]) in [dict]:
