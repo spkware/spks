@@ -90,7 +90,7 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
                 using_scratch = True
         tt = RawRecording(sessionfiles)
-        binaryfilepath = pjoin(foldername,f'filtered_recording.{probename}.bin')
+        binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin'.format(**sorting_folder_dictionary))
         if not os.path.exists(os.path.dirname(binaryfilepath)):
                 os.makedirs(os.path.dirname(binaryfilepath))
         binaryfile,metadata = tt.to_binary(binaryfilepath, channels = tt.channel_info.channel_idx.values)

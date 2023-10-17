@@ -156,6 +156,28 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
                     spike_duration = spike_duration,
                     polarity = int(-1 if trough_amp<0 else 1))  #sign of the through is the polarity
     return wavemetrics
+
+
+def estimate_active_channels(cluster_waveforms_mean,madthresh = 12):
+    '''
+    TODO
+    '''
+    nclusters,nsamples,nchannels = cluster_waveforms_mean.shape
+
+    peak_amp = [mwave[nsamples//2-15:nsamples//2+15,:].max(axis=0) - mwave[nsamples//2-15:nsamples//2+15,:].min(axis=0)
+            for mwave in cluster_waveforms_mean]
+    # get the threshold from the median_abs_deviation, this is quite low and we are comparing with the peak amplitude so use a high madthresh
+    mad_thresh = mad(cluster_waveforms_mean[:,:nsamples//2-15,:].reshape(-1,nchannels)) 
+
+    # "active" channels
+    activeidx = []
+    for p in peak_amp:
+            activeidx.append(np.where(p>mad_thresh*madthresh)[0])
+
+    nactive_channels = np.array([len(a) for a in activeidx])
+    return activeidx
+
+
 ########################################################
 ################EXTRACT WAVEFORMS#######################
 ########################################################
