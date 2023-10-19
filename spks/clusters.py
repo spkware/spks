@@ -36,7 +36,7 @@ class Clusters():
         # load the channel locations
         self.channel_positions =  self._load_optional('channel_positions.npy',channel_positions)
         self.channel_map =  self._load_optional('channel_map.npy',channel_map)
-        self.channel_gains = None
+        self.channel_gains = channel_gains
 
         # Load the amplitudes used to fit the template
         self.spike_template_amplitudes = self._load_optional('amplitudes.npy')
@@ -53,8 +53,17 @@ class Clusters():
         self.cluster_waveforms_mean = None
         self.cluster_waveforms_std = None
         self.cluster_waveforms = None
-        self.sampling_rate = None
+        self.sampling_rate = sampling_rate
 
+        # is there a sorting metadata file on this folder?
+        metadatafile = list(Path(self.folder).glob('filtered_recording*metadata.hdf'))
+        self.metadata = None
+        if len(metadatafile):
+            self.metadata = load_dict_from_h5(metadatafile[0])
+            if self.sampling_rate is None:
+                self.sampling_rate = float(self.metadata['sampling_rate'])
+            if self.channel_gains is None:
+                self.channel_gains = self.metadata['channel_conversion_factor'].flatten()
 
         if get_waveforms:
             self.load_waveforms()
@@ -64,6 +73,7 @@ class Clusters():
 
         if self.sampling_rate is None:
             self.sampling_rate = 30000.
+    
         self.compute_statistics(npre = 30, srate = self.sampling_rate)  # computes the statistics
         
         self.update_cluster_info()
@@ -96,20 +106,21 @@ class Clusters():
         The metrics are:
             - TODO
         '''
-        from .waveforms import compute_waveform_metrics
-        # computes the metrics and appends to cluster_info
-        clumetrics = []
-        for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
-        desc = 'Computing cluster waveform stats'):
-            wave = waveforms[:,cluster_channel]
-            clumetrics.append(dict(cluster_id = iclu,
-                              **compute_waveform_metrics(wave,npre=npre,srate=srate)))
-        clumetrics = pd.DataFrame(clumetrics)
-        activeidx = estimate_active_channels(self.cluster_waveforms_mean)
-        nactive_channels = np.array([len(a) for a in activeidx])
-        clumetrics['n_active_channels'] = nactive_channels
-        clumetrics['active_channels'] = activeidx
-        self.cluster_info = pd.merge(self.cluster_info,clumetrics)
+        if hasattr(self,cluster_waveforms_mean):  # compute only if there are mean waveforms
+            from .waveforms import compute_waveform_metrics
+            # computes the metrics and appends to cluster_info
+            clumetrics = []
+            for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
+            desc = 'Computing cluster waveform stats'):
+                wave = waveforms[:,cluster_channel]
+                clumetrics.append(dict(cluster_id = iclu,
+                                **compute_waveform_metrics(wave,npre=npre,srate=srate)))
+            clumetrics = pd.DataFrame(clumetrics)
+            activeidx = estimate_active_channels(self.cluster_waveforms_mean)
+            nactive_channels = np.array([len(a) for a in activeidx])
+            clumetrics['n_active_channels'] = nactive_channels
+            clumetrics['active_channels'] = activeidx
+            self.cluster_info = pd.merge(self.cluster_info,clumetrics)
 
 
     def __len__(self):
@@ -118,7 +129,6 @@ class Clusters():
     def __iter__(self):
         for iclu in self.cluster_id:
             yield self.spike_times[self.spike_clusters == iclu]
-
 
     def remove_duplicate_spikes(self,overwrite_phy = False):
         from .postprocess import get_overlapping_spikes_indices
@@ -190,6 +200,10 @@ class Clusters():
                                     desc='[Clusters] Computing mean waveforms', total = len(self))]
                     self.cluster_waveforms_mean = np.stack([r[0] for r in result])
                     self.cluster_waveforms_std = np.stack([r[1] for r in result])
+                    if not self.channel_gains is None:
+                        self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
+                        self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
+
                 from .waveforms import waveforms_position
                 self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
                 self.cluster_info['depth'] = self.cluster_position[:,1]
@@ -229,13 +243,12 @@ class Clusters():
 ################HELPER FUNCTIONS########################
 ########################################################
 
-
 def _mean_std_from_cluster_waveforms(icluster,folder):
     '''Computes the average and std of te waveforms for a specific cluster in a hdf file'''
     import h5py as h5
     with  h5.File(folder/'cluster_waveforms.hdf','r') as waveforms_file:
-        mwave = np.median(waveforms_file[str(icluster)][()],axis = 0) 
-        stdwave = np.std(waveforms_file[str(icluster)][()],axis = 0)#/waveforms_file[str(icluster)].shape[0]
+        mwave = np.mean(waveforms_file[str(icluster)][()],axis = 0) 
+        stdwave = np.std(waveforms_file[str(icluster)][()],axis = 0)#/np.sqrt(waveforms_file[str(icluster)].shape[0])
     return np.stack([mwave,stdwave])
 
     
