@@ -106,7 +106,7 @@ class Clusters():
         The metrics are:
             - TODO
         '''
-        if hasattr(self,cluster_waveforms_mean):  # compute only if there are mean waveforms
+        if not self.cluster_waveforms_mean is None:  # compute only if there are mean waveforms
             from .waveforms import compute_waveform_metrics
             # computes the metrics and appends to cluster_info
             clumetrics = []
