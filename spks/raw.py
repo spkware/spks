@@ -68,16 +68,18 @@ def bandpass_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device
 
 class RawRecording(object): 
     def __init__(self,files, 
-                preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
+                 preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
                                  lambda x: global_car_gpu(x,return_gpu=False)],
-                return_preprocessed = True,
-                return_voltage = False, **kwargs):
+                 return_preprocessed = True,
+                 device = None,  #TODO: make that the functions can make use of this. Right now it always uses the cuda if available..
+                 return_voltage = False, **kwargs):
         '''
         Pretend that the recordings are concatenated.
         There is a limit to the chunk size because of how processing is done.
         '''
         # load the files, can be compressed bin or bin
         # get the recording duration by iterating through the files
+        self.device = device
         self.files = files
         self.current_index = None
         self.nsamples = None
@@ -260,7 +262,7 @@ class RawRecording(object):
         if len(sync):
             sync = np.hstack(sync)
             for ifile,(o,f) in enumerate(self.file_sample_offsets):
-                onsets,offsets = unpackbits_gpu(sync[o:f-1])
+                onsets,offsets = unpackbits_gpu(sync[o:f-1],device = self.device)
                 metadata[f'file{ifile}_sync_onsets'] = onsets
                 metadata[f'file{ifile}_sync_offsets'] = offsets
             

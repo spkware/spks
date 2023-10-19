@@ -84,12 +84,12 @@ class SpikeSorting(object):
 def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch', use_docker = False,
              sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
              sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-             do_post_processing = False):
+             do_post_processing = False, device = 'cuda',gpu_index = 0):
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
                 using_scratch = True
-        tt = RawRecording(sessionfiles)
+        tt = RawRecording(sessionfiles,device = device)
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin'.format(**sorting_folder_dictionary))
         if not os.path.exists(os.path.dirname(binaryfilepath)):
                 os.makedirs(os.path.dirname(binaryfilepath))
@@ -120,7 +120,7 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 spkTh = -6.,
                 reorder = 1.,
                 nskip = 25.,
-                GPU = 1,
+                GPU = gpu_index + 1, # indices are one based ...
                 nfilt_factor = 4.,
                 ntbuff  = 64.,
                 NT = 65600.,
@@ -244,9 +244,9 @@ from .io import list_spikeglx_binary_paths
 
 
 def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_docker = False,
-             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
-             sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-             do_post_processing = True, move = True):
+                                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                                  sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
+                                  do_post_processing = True, move = True,device = 'cuda',gpu_index = 0):
         '''
         Sort multiprobe neuropixels recordings (will concatenate multiple sessions if a list is passed).
         '''
@@ -261,10 +261,11 @@ def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_do
         for probepath in all_probe_dirs:
                 print('Running KILOSORT 2.5 on sessions {0}'.format(' ,'.join(probepath)))
                 results_folder = ks25_run(sessionfiles = probepath, temporary_folder = temporary_folder,
-                                                  sorting_results_path_rules = sorting_results_path_rules,
-                                                  sorting_folder_dictionary = sorting_folder_dictionary,
-                                                  do_post_processing = False,
-                                                  use_docker = use_docker)
+                                          sorting_results_path_rules = sorting_results_path_rules,
+                                          sorting_folder_dictionary = sorting_folder_dictionary,
+                                          do_post_processing = False,
+                                          use_docker = use_docker,
+                                          device=device, gpu_index = gpu_index)
                 print('Completed KILOSORT 2.5. Results folder: {0}'.format(results_folder))
                 if do_post_processing:
                         results_folder = ks25_post_processing(results_folder, probepath, 
