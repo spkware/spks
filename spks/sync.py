@@ -5,7 +5,8 @@ def unpackbits_gpu(trace, num_bits = 16, return_binary = False, device = 'cpu'):
     Faster version of unpack_npix_sync that can use the gpu. trace needs to fit in GPU memory.
     Joao Couto - spks 2023
     '''
-
+    if device is None:
+        device = 'cpu'  # default to gpu
     if device == 'cuda':
         if not torch.cuda.is_available():
             print('Torch does not have access to the GPU; setting device to "cpu"')

@@ -84,12 +84,12 @@ class SpikeSorting(object):
 def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch', use_docker = False,
              sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
              sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-             do_post_processing = False):
+             do_post_processing = False, device = 'cuda',gpu_index = 0):
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
                 using_scratch = True
-        tt = RawRecording(sessionfiles)
+        tt = RawRecording(sessionfiles,device = device)
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin'.format(**sorting_folder_dictionary))
         if not os.path.exists(os.path.dirname(binaryfilepath)):
                 os.makedirs(os.path.dirname(binaryfilepath))
@@ -120,7 +120,7 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 spkTh = -6.,
                 reorder = 1.,
                 nskip = 25.,
-                GPU = 1,
+                GPU = gpu_index + 1, # indices are one based ...
                 nfilt_factor = 4.,
                 ntbuff  = 64.,
                 NT = 65600.,
@@ -209,10 +209,10 @@ def ks25_post_processing(resultsfolder, sessionfolder, move = False,
         sp = Clusters(resultsfolder)
         sp.remove_duplicate_spikes(overwrite_phy=True)
         # 2. compute_waveforms
-        meta = load_dict_from_h5(resultsfolder.glob('filtered_recording.*.metadata.hdf')[0])
+        meta = load_dict_from_h5(list(resultsfolder.glob('filtered_recording.*.metadata.hdf'))[0])
         
         from .io import map_binary
-        data = map_binary(resultsfolder.glob('filtered_recording.*.bin')[0],meta['nchannels'])
+        data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
         
         from .waveforms import extract_waveform_set
         mwaves = extract_waveform_set(spike_times = sp,
@@ -222,7 +222,7 @@ def ks25_post_processing(resultsfolder, sessionfolder, move = False,
                                 chunksize = 10)
         # 3. store a sample of 1000 waveforms to disk.
         waveforms = {}
-        for iclu,w in zip(sp.unique_clusters,mwaves):
+        for iclu,w in zip(sp.cluster_id,mwaves):
                 waveforms[iclu] = w
         save_dict_to_h5(resultsfolder/'cluster_waveforms.hdf',waveforms)
         # 4. move the files to a new folder
@@ -244,9 +244,9 @@ from .io import list_spikeglx_binary_paths
 
 
 def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_docker = False,
-             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
-             sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-             do_post_processing = True, move = True):
+                                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                                  sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
+                                  do_post_processing = True, move = True,device = 'cuda',gpu_index = 0):
         '''
         Sort multiprobe neuropixels recordings (will concatenate multiple sessions if a list is passed).
         '''
@@ -261,10 +261,11 @@ def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_do
         for probepath in all_probe_dirs:
                 print('Running KILOSORT 2.5 on sessions {0}'.format(' ,'.join(probepath)))
                 results_folder = ks25_run(sessionfiles = probepath, temporary_folder = temporary_folder,
-                                                  sorting_results_path_rules = sorting_results_path_rules,
-                                                  sorting_folder_dictionary = sorting_folder_dictionary,
-                                                  do_post_processing = False,
-                                                  use_docker = use_docker)
+                                          sorting_results_path_rules = sorting_results_path_rules,
+                                          sorting_folder_dictionary = sorting_folder_dictionary,
+                                          do_post_processing = False,
+                                          use_docker = use_docker,
+                                          device=device, gpu_index = gpu_index)
                 print('Completed KILOSORT 2.5. Results folder: {0}'.format(results_folder))
                 if do_post_processing:
                         results_folder = ks25_post_processing(results_folder, probepath, 

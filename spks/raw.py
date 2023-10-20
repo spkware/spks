@@ -1,7 +1,10 @@
 from .utils import *
 import torchaudio
 from scipy.signal import butter
-from .spikeglx_utils import load_spikeglx_binary
+from .spikeglx_utils import load_spikeglx_binary, load_spikeglx_mtsdecomp
+
+SPIKEGLX_FILE_EXTENSION = '.bin'
+MTSCOMP_FILE_EXTENSION = '.cbin'
 
 @torch.no_grad()
 def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, padlen = 150):
@@ -68,16 +71,18 @@ def bandpass_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device
 
 class RawRecording(object): 
     def __init__(self,files, 
-                preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
+                 preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
                                  lambda x: global_car_gpu(x,return_gpu=False)],
-                return_preprocessed = True,
-                return_voltage = False, **kwargs):
+                 return_preprocessed = True,
+                 device = None,  #TODO: make that the functions can make use of this. Right now it always uses the cuda if available..
+                 return_voltage = False, **kwargs):
         '''
         Pretend that the recordings are concatenated.
         There is a limit to the chunk size because of how processing is done.
         '''
         # load the files, can be compressed bin or bin
         # get the recording duration by iterating through the files
+        self.device = device
         self.files = files
         self.current_index = None
         self.nsamples = None
@@ -144,8 +149,11 @@ class RawRecording(object):
 
     def _load_buffers(self):
         self.buffers = []
-        for file in self.files:
-            self.buffers.append(load_spikeglx_binary(file)[0])
+        for ifile,file in enumerate(self.files):
+            if self.file_extensions[ifile] == SPIKEGLX_FILE_EXTENSION: #TODO: pass a loading function when initializing RawRecording?
+                self.buffers.append(load_spikeglx_binary(file)[0])
+            elif self.file_extensions[ifile] == MTSCOMP_FILE_EXTENSION:
+                self.buffers.append(load_spikeglx_mtsdecomp(file)[0])
 
     def _set_current_buffer(self,ibuffer):
         #TODO: make thread safe by having a list of buffers
@@ -155,10 +163,15 @@ class RawRecording(object):
 
     def _init_parameters(self):
         ''' This function depends on the reader. It should populate the parameters of the object.'''
+        self.file_extensions = []
         for ifile,f in enumerate(self.files):
             if not os.path.exists(f):
                 raise(OSError('[RawRecording] - {0} file not found.'.format(f)))
-            self.current_pointer,meta = load_spikeglx_binary(f)
+            self.file_extensions.append(Path(f).suffix)
+            if self.file_extensions[ifile] == SPIKEGLX_FILE_EXTENSION:
+                self.current_pointer,meta = load_spikeglx_binary(f)
+            elif self.file_extensions[ifile] == MTSCOMP_FILE_EXTENSION:
+                self.current_pointer,meta = load_spikeglx_mtsdecomp(f)
             self.offsets.append(self.current_pointer.shape[0])
             self.metadata.append(meta)
             if ifile == 0:
@@ -260,7 +273,7 @@ class RawRecording(object):
         if len(sync):
             sync = np.hstack(sync)
             for ifile,(o,f) in enumerate(self.file_sample_offsets):
-                onsets,offsets = unpackbits_gpu(sync[o:f-1])
+                onsets,offsets = unpackbits_gpu(sync[o:f-1],device = self.device)
                 metadata[f'file{ifile}_sync_onsets'] = onsets
                 metadata[f'file{ifile}_sync_offsets'] = offsets
             
