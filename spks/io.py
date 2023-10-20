@@ -46,7 +46,7 @@ def list_spikeglx_binary_paths(subject_dir):
         probe_dirs = [str(folder) for folder in bin_paths if probe in str(folder)]
         probe_dirs = natsorted(probe_dirs, key=str)
         all_probe_dirs.append(probe_dirs)
-    return all_probe_dir
+    return all_probe_dirs
 
 def list_sorting_result_paths(subject_dir, return_dates=False):
     """return a list of spike-sorting paths for each probe"""
