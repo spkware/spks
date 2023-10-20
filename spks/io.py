@@ -23,7 +23,19 @@ def list_spikeglx_binary_paths(subject_dir):
     #TODO: check for missing probe data
     #TODO: add is_sorted flag to only grab sorted sessions
     # recursive find ap.bin files
-    bin_paths = list(Path(subject_dir).expanduser().glob('**/*.ap.bin'))
+    bin_paths = list(Path(subject_dir).expanduser().rglob('*.ap.*bin'))
+
+    # Remove extension and check for compressed and uncompressed file, if duplicates, take the uncompressed file
+    bin_paths_no_extension = [p.with_suffix('') for p in bin_paths]
+    unique_files = np.unique(bin_paths_no_extension)
+    dedup_bin_paths = []
+    for f in unique_files:
+        if Path(str(f) + '.bin').exists(): # this is hacky because Pathlib doesn't like the two periods in the file (.ap.bin)
+            dedup_bin_paths.append(Path(str(f) + '.bin'))
+        elif Path(str(f) + '.cbin').exists():
+            dedup_bin_paths.append(Path(str(f) + '.cbin'))
+    
+    #####
     # probe number is attached to imec
     prbs = []
     for p in bin_paths:
@@ -34,7 +46,7 @@ def list_spikeglx_binary_paths(subject_dir):
         probe_dirs = [str(folder) for folder in bin_paths if probe in str(folder)]
         probe_dirs = natsorted(probe_dirs, key=str)
         all_probe_dirs.append(probe_dirs)
-    return all_probe_dirs
+    return all_probe_dir
 
 def list_sorting_result_paths(subject_dir, return_dates=False):
     """return a list of spike-sorting paths for each probe"""
