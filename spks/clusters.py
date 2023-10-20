@@ -31,6 +31,9 @@ class Clusters():
         self.spike_times = self._load_required('spike_times.npy',spike_times)
         # load each spike cluster number
         self.spike_clusters = self._load_required('spike_clusters.npy',spike_clusters)
+
+        self._set_auxiliary()  # set other variables that used to speed up things internally
+
         unique_clusters = np.sort(np.unique(self.spike_clusters)).astype(int)
         self.cluster_info = pd.DataFrame(dict(cluster_id = unique_clusters))
         # load the channel locations
@@ -79,11 +82,18 @@ class Clusters():
         self.update_cluster_info()
         #if remove_duplicate_spikes:
         #    self.remove_duplicate_spikes()
+    
+    def _set_auxiliary(self):
+        # uses torch indexing which is faster.
+        device = 'cpu' # no point in overloading the gpu
+        self._spike_clusters_t = torch.from_numpy(self.spike_clusters.astype('int32')).squeeze().to(device) 
+
     def update_cluster_info(self): 
         self.__dict__.update(dict(zip(list(self.cluster_info), self.cluster_info.to_numpy().T)))
 
     def get_cluster(self,cluster_id):
-        self.spike_times[self.spike_clusters == cluster_id]
+        # return self.spike_times[self.spike_clusters == cluster_id]  # roughly twice slower than below. 
+        return np.take(self.spike_times,torch.nonzero(self._spike_clusters_t == cluster_id).flatten())
 
     def __getitem__(self, index):
         ''' returns the spiketimes for a set of clusters'''
@@ -92,8 +102,8 @@ class Clusters():
         if type(index) in [slice]:
             index = np.arange(*index.indices(len(self)))
         sp = []
-        for iclu in self.cluster_id[index]:
-            sp.append(self.spike_times[self.spike_clusters == iclu])
+        for iclu in self.cluster_info.cluster_id.values[index]:
+            sp.append(self.get_cluster(iclu))  
         if len(sp) == 1:
             return sp[0]
         else:
@@ -106,6 +116,26 @@ class Clusters():
         The metrics are:
             - TODO
         '''
+        from .metrics import isi_contamination, firing_rate
+
+        unitmetrics = []
+        self.min_sampled_time  = np.min(self.spike_times)
+        self.max_sampled_time  = np.max(self.spike_times)
+        t_min = self.min_sampled_time/self.sampling_rate
+        t_max = self.max_sampled_time/self.sampling_rate
+        
+        for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
+            desc = 'Computing unit metrics'):
+            sp = (ts/self.sampling_rate).astype(np.float32)
+            unit = dict(cluster_id = iclu,
+                        isi_contamination = isi_contamination(sp, 
+                                                              refractory_time=0.0015,
+                                                              censored_time=0,
+                                                              T = t_max-t_min), # duration of the recording
+                        firing_rate = firing_rate(sp,t_min = t_min,t_max = t_max))
+            unitmetrics.append(unit)
+        self.cluster_info = pd.merge(self.cluster_info,pd.DataFrame(unitmetrics))
+
         if not self.cluster_waveforms_mean is None:  # compute only if there are mean waveforms
             from .waveforms import compute_waveform_metrics
             # computes the metrics and appends to cluster_info
@@ -121,14 +151,15 @@ class Clusters():
             clumetrics['n_active_channels'] = nactive_channels
             clumetrics['active_channels'] = activeidx
             self.cluster_info = pd.merge(self.cluster_info,clumetrics)
+        
 
 
     def __len__(self):
         return len(self.cluster_info)
 
     def __iter__(self):
-        for iclu in self.cluster_id:
-            yield self.spike_times[self.spike_clusters == iclu]
+        for iclu in self.cluster_info.cluster_id.values:
+            yield self.get_cluster(iclu) 
 
     def remove_duplicate_spikes(self,overwrite_phy = False):
         from .postprocess import get_overlapping_spikes_indices
@@ -138,6 +169,8 @@ class Clusters():
         self.spike_times = np.delete(self.spike_times,doubled)
         self.spike_clusters = np.delete(self.spike_clusters,doubled)
         
+        self._set_auxiliary()
+
         if not self.spike_amplitudes is None:
             self.spike_amplitudes = np.delete(self.spike_amplitudes,doubled)
         if not self.spike_positions is None:
