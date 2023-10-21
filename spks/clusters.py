@@ -5,11 +5,17 @@ class Clusters():
     def __init__(self,folder = None,
                 spike_times = None, 
                 spike_clusters = None,
+                spike_template_amplitudes = None,
+                spike_templates = None,
+                spike_pc_features = None,
+                template_pc_features_ind = None,
                 channel_positions = None, 
                 channel_map = None,
                 sampling_rate = None,
                 channel_gains = None,
                 get_waveforms = True,
+                name = 'Clusters',
+                load_template_features = True,
                 compute_raw_templates=True):#, remove_duplicate_spikes = False):
         '''
         Object to access the spike sorting results like an array
@@ -24,6 +30,7 @@ class Clusters():
 
         Joao Couto - spks 2023
         '''
+        self.name = name
         if type(folder) in [str]:
             folder = Path(folder)
         self.folder = folder
@@ -41,16 +48,21 @@ class Clusters():
         self.channel_map =  self._load_optional('channel_map.npy',channel_map)
         self.channel_gains = channel_gains
 
-        # Load the amplitudes used to fit the template
-        self.spike_template_amplitudes = self._load_optional('amplitudes.npy')
-        # load spike templates (which template was fitted) for each spike
-        self.spike_templates = self._load_optional('spike_templates.npy')
-        # load the templates used to extract the spikes
-        self.templates =  self._load_optional('templates.npy')
-        # load the whitening matrix (to correct for the data having been whitened)
-        self.whitening_matrix = self._load_optional('whitening_mat_inv.npy')
-        if not self.whitening_matrix is None:
-            self.whitening_matrix = self.whitening_matrix.T
+        if load_template_features:  # this can take a while, disable if you don't need to estimate amplitudes or so
+            # Load the amplitudes used to fit the template
+            self.spike_template_amplitudes = self._load_optional('amplitudes.npy',spike_template_amplitudes)
+            # load spike templates (which template was fitted) for each spike
+            self.spike_templates = self._load_optional('spike_templates.npy',spike_templates)
+            # load the principle component features for each spike nspikes x featuresperchannel x nfeatures            
+            self.spike_pc_features = self._load_optional('pc_features.npy',spike_pc_features)
+            # template index for each PC feature
+            self.template_pc_features_ind = self._load_optional('pc_feature_ind.npy',template_pc_features_ind)
+            # load the templates used to extract the spikes
+            self.templates =  self._load_optional('templates.npy')
+            # load the whitening matrix (to correct for the data having been whitened)
+            self.whitening_matrix = self._load_optional('whitening_mat_inv.npy')
+            if not self.whitening_matrix is None:
+                self.whitening_matrix = self.whitening_matrix.T
         self.cluster_groups = self._load_optional('cluster_group.tsv')
         
         self.cluster_waveforms_mean = None
@@ -72,7 +84,7 @@ class Clusters():
             self.load_waveforms()
         # compute the raw templates and the position of each cluster based on the template position
         if compute_raw_templates:
-            self._compute_template_amplitudes()
+            self._compute_template_amplitudes_and_depths()
 
         if self.sampling_rate is None:
             self.sampling_rate = 30000.
@@ -125,7 +137,7 @@ class Clusters():
         t_max = self.max_sampled_time/self.sampling_rate
         
         for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
-            desc = '[Clusters] Computing unit metrics'):
+            desc = '[{0}] Computing unit metrics'.format(self.name)):
             sp = (ts/self.sampling_rate).astype(np.float32)
             unit = dict(cluster_id = iclu,
                         isi_contamination = isi_contamination(sp, 
@@ -142,7 +154,7 @@ class Clusters():
             # computes the metrics and appends to cluster_info
             clumetrics = []
             for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
-            desc = '[Clusters] Computing waveform stats'):
+            desc = '[{0}] Computing waveform stats'.format(self.name)):
                 wave = waveforms[:,cluster_channel]
                 clumetrics.append(dict(cluster_id = iclu,
                                 **compute_waveform_metrics(wave,npre=npre,srate=srate)))
@@ -180,6 +192,8 @@ class Clusters():
             self.spike_templates = np.delete(self.spike_templates,doubled)
         if not self.spike_template_amplitudes is None:
             self.spike_template_amplitudes = np.delete(self.spike_template_amplitudes,doubled)
+        if not self.spike_pc_features is None:
+            self.spike_pc_features = np.delete(self.spike_pc_features,doubled)
         if overwrite_phy:
             self.export_phy(self.folder)
 
@@ -192,8 +206,10 @@ class Clusters():
             np.save(folder/'amplitudes.npy', self.spike_template_amplitudes)
         if not self.spike_templates is None:
             np.save(folder/'spike_templates.npy', self.spike_templates)
+        if not self.spike_pc_features is None:
+            np.save(folder/'pc_features.npy', self.spike_pc_features)
     
-    def _compute_template_amplitudes(self):
+    def _compute_template_amplitudes_and_depths(self):
         self.templates_raw = None
         self.templates_amplitude = None
         self.templates_position = None
@@ -213,7 +229,12 @@ class Clusters():
             self.template_position,self.template_channel = waveforms_position(self.templates_raw,self.channel_positions)
             # get the spike positions and amplitudes from the average templates
             self.spike_amplitudes = self.templates_amplitude[self.spike_templates]*self.spike_template_amplitudes
-            self.spike_positions = self.template_position[self.spike_templates,:].squeeze()
+            if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
+                 if self.spike_pc_features.shape[0] == len(self.spike_times):
+                    self.spike_positions = None
+            if self.spike_positions is None:
+                # without spike features, one can estimate the position from the templates used to fit.
+                self.spike_positions = self.template_position[self.spike_templates,:].squeeze()
 
     def get_cluster_waveforms(self,cluster_id,n_waveforms = 50):
         if not hasattr(self,'cluster_waveforms'):
@@ -231,7 +252,7 @@ class Clusters():
                 with Pool(12) as pool:
                     result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
                                             folder = self.folder),self.cluster_info.cluster_id.values),
-                                    desc='[Clusters] Computing mean waveforms', total = len(self))]
+                                    desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
                     self.cluster_waveforms_mean = np.stack([r[0] for r in result])
                     self.cluster_waveforms_std = np.stack([r[1] for r in result])
                     if not self.channel_gains is None:
@@ -245,7 +266,7 @@ class Clusters():
 
         if not hasattr(self,'cluster_waveforms'):
             print()
-            raise(OSError('[Clusters] - Waveforms file [cluster_waveforms.hdf] not in folder'))
+            raise(OSError('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder'.format(self.name)))
 
     def _load_required(self,file,var = None):
         '''
@@ -254,7 +275,7 @@ class Clusters():
         '''
         if var is None:
             path = self.folder / file
-            assert path.exists(), f'[Clusters] - {path} doesnt exist'
+            assert path.exists(), '[{0}] - {1} doesnt exist'.format(self.name,path)
             return np.load(path)
         return var
 

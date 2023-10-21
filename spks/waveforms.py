@@ -19,7 +19,7 @@ def waveforms_position(waveforms,channel_positions):
     channel_positions : array [nchannels x 2]
         x and y coordinates of each channel
     
-    Returns
+    Return
     -------
     centerofmass: array [nchannels x 2]
         center of mass of the waveforms 
@@ -46,8 +46,9 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
 
     wavemetrics = waveforms_position(waveform,npre,srate,upsample_factor = 100)
 
-    Inputs
-    ------
+    Parameters
+    ------------
+
     waveforms : array [nsamples]
         average waveform for a single channel (usually the channel with the biggest waveform) 
     npre : int
@@ -57,8 +58,9 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     upsampling_factor: int (default 100)
         factor to 'upsample' the waveform to avoid sampling artifacts in the quantification
 
-    Returns
-    -------
+    Return
+    ------------
+
     wavemetrics: dict 
         trough_time: (ms) time to the trough in relation to the spike timestamp
         trough_amplitude: trough amplitude
@@ -72,8 +74,9 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
 
     Joao Couto - spks 2023
 
-    Usage example
-    -------------
+    Example
+    ------------
+
     # get the principal waveforms from Clusters
     principal_waveforms = np.stack([w[:,p] for w,p in zip(clusters.cluster_waveforms_mean,clusters.cluster_channel)])
 
