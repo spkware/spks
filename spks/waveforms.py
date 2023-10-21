@@ -321,7 +321,8 @@ def extract_waveform_set(spike_times, data, chmap=None,scratch_directory=None,
     #print(f'Extracting mean waveforms with up to {max_n_spikes} spikes per cluster.')
     all_waves = []
     for s in tqdm(spike_times,desc = 'Extracting waveforms'):
-        times_to_extract = np.sort(np.random.choice(s[(s>npre) & (s<(data.shape[0]-npost))].astype(int), size=min(s.size,max_n_spikes), replace=False))
+        valid_spikes = s[(s>npre) & (s<(data.shape[0]-npost))].astype(int) #exclude waveforms truncated by the end or beginning of recording
+        times_to_extract = np.sort(np.random.choice(valid_spikes, size=min(valid_spikes.size,max_n_spikes), replace=False))
         waves = extract_memmapped_waveforms(data = data, timestamps = times_to_extract, scratch_directory = scratch_directory, 
                                             chmap = chmap, npre=npre, npost=npost, silent=True, **dict(extract_waveforms_kwargs))
         all_waves.append(waves)
