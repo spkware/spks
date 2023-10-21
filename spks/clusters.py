@@ -116,7 +116,7 @@ class Clusters():
         The metrics are:
             - TODO
         '''
-        from .metrics import isi_contamination, firing_rate
+        from .metrics import isi_contamination, firing_rate, presence_ratio
 
         unitmetrics = []
         self.min_sampled_time  = np.min(self.spike_times)
@@ -125,14 +125,15 @@ class Clusters():
         t_max = self.max_sampled_time/self.sampling_rate
         
         for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
-            desc = 'Computing unit metrics'):
+            desc = '[Clusters] Computing unit metrics'):
             sp = (ts/self.sampling_rate).astype(np.float32)
             unit = dict(cluster_id = iclu,
                         isi_contamination = isi_contamination(sp, 
                                                               refractory_time=0.0015,
                                                               censored_time=0,
                                                               T = t_max-t_min), # duration of the recording
-                        firing_rate = firing_rate(sp,t_min = t_min,t_max = t_max))
+                        firing_rate = firing_rate(sp,t_min = t_min,t_max = t_max),
+                        presence_ratio = presence_ratio(sp,t_min=t_min, t_max=t_max))
             unitmetrics.append(unit)
         self.cluster_info = pd.merge(self.cluster_info,pd.DataFrame(unitmetrics))
 
@@ -141,7 +142,7 @@ class Clusters():
             # computes the metrics and appends to cluster_info
             clumetrics = []
             for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
-            desc = 'Computing cluster waveform stats'):
+            desc = '[Clusters] Computing waveform stats'):
                 wave = waveforms[:,cluster_channel]
                 clumetrics.append(dict(cluster_id = iclu,
                                 **compute_waveform_metrics(wave,npre=npre,srate=srate)))
