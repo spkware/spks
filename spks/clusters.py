@@ -251,23 +251,25 @@ class Clusters():
         if not self.folder is None:
             if (self.folder/'cluster_waveforms.hdf').exists():
                 self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
-                with Pool(12) as pool:
-                    result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
-                                            folder = self.folder),self.cluster_info.cluster_id.values),
-                                    desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
-                    self.cluster_waveforms_mean = np.stack([r[0] for r in result])
-                    self.cluster_waveforms_std = np.stack([r[1] for r in result])
-                    if not self.channel_gains is None:
-                        self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
-                        self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
+                try:
+                    with Pool(12) as pool:
+                        result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
+                                                folder = self.folder),self.cluster_info.cluster_id.values),
+                                        desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
+                        self.cluster_waveforms_mean = np.stack([r[0] for r in result])
+                        self.cluster_waveforms_std = np.stack([r[1] for r in result])
+                        if not self.channel_gains is None:
+                            self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
+                            self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
 
-                from .waveforms import waveforms_position
-                self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
-                self.cluster_info['depth'] = self.cluster_position[:,1]
-                self.cluster_info['electrode'] = self.cluster_channel
-
+                    from .waveforms import waveforms_position
+                    self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
+                    self.cluster_info['depth'] = self.cluster_position[:,1]
+                    self.cluster_info['electrode'] = self.cluster_channel
+                except:
+                    del self.cluster_waveforms
+                    self.cluster_waveforms = None
         if not hasattr(self,'cluster_waveforms'):
-            print()
             raise(OSError('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder'.format(self.name)))
 
     def _load_required(self,file,var = None):
