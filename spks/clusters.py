@@ -94,7 +94,11 @@ class Clusters():
         self.update_cluster_info()
         #if remove_duplicate_spikes:
         #    self.remove_duplicate_spikes()
-    
+    def __del__(self):
+        if hasattr(self,'cluster_waveforms'):
+            # close the waveforms if the hdf5 is open
+            del self.cluster_waveforms
+
     def _set_auxiliary(self):
         # uses torch indexing which is faster.
         device = 'cpu' # no point in overloading the gpu
@@ -195,7 +199,7 @@ class Clusters():
         if not self.spike_template_amplitudes is None:
             self.spike_template_amplitudes = np.delete(self.spike_template_amplitudes,doubled)
         if not self.spike_pc_features is None:
-            self.spike_pc_features = np.delete(self.spike_pc_features,doubled)
+            self.spike_pc_features = np.delete(self.spike_pc_features,doubled, axis = 0)
         if overwrite_phy:
             self.export_phy(self.folder)
 
