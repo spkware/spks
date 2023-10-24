@@ -1,7 +1,7 @@
 from .utils import *
 
-# The goal of these functions are to provide a simple description and documented implementation to unit metrics 
-#using functions that take the minimum required input and don't depent on data structure.
+# The goal of these functions are to provide a simple description and hopefully documented implementation of different
+#  unit metrics using functions that take the minimum required input and don't depent on data organization.
 #  
 # There are good resources to learn more about spike sorting metrics:
 #  - Hill, D. N. et al. 2011 doi:10.1523/JNEUROSCI.0971-11.2011
@@ -150,3 +150,41 @@ and counts how many bins have more than *min_spikes*.
     counts,_ = np.histogram(sp, np.linspace(t_min, t_max, nbins+1)) # added 1 so the number of bins is actually nbins
 
     return np.sum(counts > min_spikes)/nbins
+
+
+def amplitude_cutoff(amplitudes, num_histogram_bins = 500, histogram_smoothing_value = 3):
+
+    """ This is from the Allen Institute - ecephys implementation.
+    Calculates approximate fraction of spikes missing from a distribution of amplitudes
+    
+    Assumes the amplitude histogram is symmetric (not valid in the presence of drift)
+    
+    Inspired by metric described in Hill et al. (2011) J Neurosci 31: 8699-8705
+
+    Parameters:
+    ------
+    amplitudes : numpy.ndarray
+    Array of amplitudes (don't need to be in physical units)
+
+    Output:
+    -------
+    fraction_missing : float
+    Fraction of missing spikes (0-0.5)
+    If more than 50% of spikes are missing, an accurate estimate isn't possible
+    """
+
+
+    h,b = np.histogram(amplitudes, num_histogram_bins, density=True)
+
+    pdf = gaussian_filter(h,histogram_smoothing_value)
+    support = b[:-1]
+
+    peak_index = np.argmax(pdf)
+    G = np.argmin(np.abs(pdf[peak_index:] - pdf[0])) + peak_index
+
+    bin_size = np.mean(np.diff(support))
+    fraction_missing = np.sum(pdf[G:])*bin_size
+
+    fraction_missing = np.min([fraction_missing, 0.5])
+
+    return fraction_missing

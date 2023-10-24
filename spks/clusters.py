@@ -128,7 +128,7 @@ class Clusters():
         The metrics are:
             - TODO
         '''
-        from .metrics import isi_contamination, firing_rate, presence_ratio
+        from .metrics import isi_contamination, firing_rate, presence_ratio, amplitude_cutoff
 
         unitmetrics = []
         self.min_sampled_time  = np.min(self.spike_times)
@@ -146,6 +146,8 @@ class Clusters():
                                                               T = t_max-t_min), # duration of the recording
                         firing_rate = firing_rate(sp,t_min = t_min,t_max = t_max),
                         presence_ratio = presence_ratio(sp,t_min=t_min, t_max=t_max))
+            if not self.spike_amplitudes is None:
+                unit['amplitude_cutoff'] = amplitude_cutoff(np.take(self.spike_amplitudes,torch.nonzero(self._spike_clusters_t == iclu).flatten()))
             unitmetrics.append(unit)
         self.cluster_info = pd.merge(self.cluster_info,pd.DataFrame(unitmetrics))
 
@@ -228,7 +230,7 @@ class Clusters():
             from .waveforms import waveforms_position
             self.template_position,self.template_channel = waveforms_position(self.templates_raw,self.channel_positions)
             # get the spike positions and amplitudes from the average templates
-            self.spike_amplitudes = self.templates_amplitude[self.spike_templates]*self.spike_template_amplitudes
+            self.spike_amplitudes = np.take(self.templates_amplitude,self.spike_templates)*self.spike_template_amplitudes
             if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
                  if self.spike_pc_features.shape[0] == len(self.spike_times):
                     self.spike_positions = None
