@@ -111,7 +111,7 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     # this will work also if the waveform is positive (but not well tested)
     # it estimates the trough time, amplitude and gradient
     # the gradient is 
-    trough_idx = np.argmax(np.abs(wv[(tt>=-0.25) & (tt<=0.25)])) + np.where((tt>=-0.25))[0][0]
+    trough_idx = np.argmax(np.abs(wv[(tt>=-0.15) & (tt<=0.15)])) + np.where((tt>=-0.15))[0][0]
     trough_amp = wv[trough_idx]
     trough_time = tt[trough_idx]
     
@@ -141,13 +141,20 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
 
     # the peak is at abs max after the trought and after crossing zero
     # we compute the peak to be able to compute the amplitude and the spike duration
-    idx = (np.where(wv[trough_idx:]>=0)[0][0])+trough_idx
-    peak_idx = np.argmax(wv[idx:])+idx
-    peak_time = tt[peak_idx]
-    peak_amp = wv[peak_idx]
-    # spike duration is the time between trough and the peak
-    spike_duration = peak_time - trough_time
-    if spike_duration == 0: # then it is an artifact
+    idx = np.where(wv[trough_idx:]>=0)[0]
+    if len(idx):
+        idx = idx[0]+trough_idx
+        peak_idx = np.argmax(wv[idx:])+idx
+        peak_time = tt[peak_idx]
+        peak_amp = wv[peak_idx]
+        # spike duration is the time between trough and the peak
+        spike_duration = peak_time - trough_time
+        if spike_duration == 0: # then it is an artifact
+            spike_duration = np.nan
+    else:
+        # there is no peak
+        peaktime = np.nan
+        peak_amp = np.nan
         spike_duration = np.nan
     wavemetrics = dict(trough_time = trough_time,
                     trough_amplitude  = trough_amp,
