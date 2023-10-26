@@ -14,6 +14,7 @@ class Clusters():
                 sampling_rate = None,
                 channel_gains = None,
                 get_waveforms = True,
+                compute_metrics = True,
                 name = 'Clusters',
                 load_template_features = True,
                 compute_raw_templates=True):#, remove_duplicate_spikes = False):
@@ -89,7 +90,8 @@ class Clusters():
         if self.sampling_rate is None:
             self.sampling_rate = 30000.
     
-        self.compute_statistics(npre = 30, srate = self.sampling_rate)  # computes the statistics
+        if compute_metrics:
+            self.compute_statistics(npre = 30, srate = self.sampling_rate)  # computes the statistics
         
         self.update_cluster_info()
         #if remove_duplicate_spikes:
@@ -230,11 +232,14 @@ class Clusters():
             templates_peak_to_peak = (self.templates_raw.max(axis = 1) - self.templates_raw.min(axis = 1))
             # the amplitude of each template is the max of the peak difference for all channels
             self.templates_amplitude = templates_peak_to_peak.max(axis=1)
+            templates_amplitude = self.templates_amplitude.copy()
+            templates_amplitude[~np.isfinite(templates_amplitude)] = np.nanmean(templates_amplitude) # Fix for when kilosort returns NaN templates, make them the average of all templates
+
             # compute the center of mass (X,Y) of the templates
             from .waveforms import waveforms_position
             self.template_position,self.template_channel = waveforms_position(self.templates_raw,self.channel_positions)
             # get the spike positions and amplitudes from the average templates
-            self.spike_amplitudes = np.take(self.templates_amplitude,self.spike_templates)*self.spike_template_amplitudes
+            self.spike_amplitudes = np.take(templates_amplitude,self.spike_templates)*self.spike_template_amplitudes
             if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
                  if self.spike_pc_features.shape[0] == len(self.spike_times):
                     self.spike_positions = None
