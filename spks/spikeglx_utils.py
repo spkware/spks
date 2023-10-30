@@ -90,23 +90,27 @@ def read_geommap(tb):
     table = pd.DataFrame(table,columns=keys)
     table['channel_idx'] = np.arange(len(table)).astype(int)
     return table,dict(probetype = probetype,
-                    nshanks = int(nshanks),
+                    n_shanks = int(nshanks),
                     shank_pitch = float(shank_pitch),
                     shank_width = float(shank_width))
 
 def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
     '''
     Python version of the channelmap parser from spikeglx files.
-    Adapted from the matlab from Jeniffer Colonel
+    
+    The 'else' is adapted from the matlab from Jeniffer Colonel
 
     Joao Couto - 2022
     '''
 
     if 'snsGeomMap' in meta.keys():
         tbl,other = read_geommap(meta['snsGeomMap'])
+        
         coords = np.vstack(tbl[['xcoord','ycoord']].values)
         idx = tbl['channel_idx'].values
         shank = tbl['shank_id'].values
+        if other['n_shanks']> 1:
+            coords[:,0] = coords[:,0] + shank*other['shank_pitch']
         connected = tbl['connected'].values
     else:
         if not 'imDatPrb_type' in meta.keys():

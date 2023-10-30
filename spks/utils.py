@@ -19,6 +19,7 @@ import h5py as h5
 import datetime
 import shutil
 from scipy.ndimage import gaussian_filter
+from scipy.interpolate import interp1d
 
 mad = lambda x : median_abs_deviation(x,scale='normal',nan_policy='omit')
 
