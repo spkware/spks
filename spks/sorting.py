@@ -68,17 +68,17 @@ class SpikeSorting(object):
                      preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,5000),
                                       lambda x: global_car_gpu(x,return_gpu=False)],
                      temporary_folder = None, **kwargs):
-        ''' Run a spike sorter. 
-    1) Creates the output folder.
-    2) Concatenates the input files.
-    3) Writes a json file with the onsets and offsets of each file, the channelmap
-    4) Downloads a sorter image and runs it in the temporaty folder
-    5) Copies the files to the output folder and cleans the temporary folder
+                ''' Run a spike sorter. 
+        1) Creates the output folder.
+        2) Concatenates the input files.
+        3) Writes a json file with the onsets and offsets of each file, the channelmap
+        4) Downloads a sorter image and runs it in the temporaty folder
+        5) Copies the files to the output folder and cleans the temporary folder
 
 
     THIS IS A PLACEHOLDER FOR NOW.
         '''
-        pass
+                pass
 
 def ks25_run(sessionfiles = [],
              foldername = None,
