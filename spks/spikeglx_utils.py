@@ -77,6 +77,10 @@ def read_spikeglx_meta(metafile):
     if 'imroTbl' in meta.keys():
         meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'])
         meta['conversion_factor_microV'] = meta['conversion_factor_microV']/meta['imro_table']['ap_gain'].values
+        if 'channel_idx' in meta.keys():
+            # This is so it works with the ULTRA alphas..
+            if len(meta['conversion_factor_microV']) != len(meta['channel_idx']):
+                meta['conversion_factor_microV'] = meta['conversion_factor_microV'][0]*np.ones_like(meta['channel_idx'])
     #TODO deal with the NI gains
     #TODO deal with LF files.
     return meta
@@ -105,7 +109,6 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
 
     if 'snsGeomMap' in meta.keys():
         tbl,other = read_geommap(meta['snsGeomMap'])
-        
         coords = np.vstack(tbl[['xcoord','ycoord']].values)
         idx = tbl['channel_idx'].values
         shank = tbl['shank_id'].values

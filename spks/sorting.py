@@ -218,7 +218,7 @@ def ks25_post_processing(resultsfolder, sessionfolder, move = False,
         mwaves = extract_waveform_set(spike_times = sp,
                                 data = data,
                                 chmap = np.arange(meta['nchannels']),
-                                max_n_spikes = 1000,
+                                max_n_spikes = 500, # max number of spikes to extract for the average waveforms
                                 chunksize = 10)
         # 3. store a sample of 1000 waveforms to disk.
         waveforms = {}
