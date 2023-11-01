@@ -89,7 +89,7 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 using_scratch = True
         tt = RawRecording(sessionfiles,device = device)
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin'.format(**sorting_folder_dictionary))
-        output_folder = os.path.dirname(binaryfilepath))
+        output_folder = os.path.dirname(binaryfilepath)
 
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
