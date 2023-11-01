@@ -182,7 +182,7 @@ exit(1);
 '''
             matlabfile = pjoin(output_folder,'run_ks.m')
             with open(matlabfile,'w') as f:
-                f.write(kilosort25_file.format(output_folder = output_folder)
+                f.write(kilosort25_file.format(output_folder = output_folder))
             cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
             os.system(cmd) # easier to kill than subprocess?
         if do_post_processing:
