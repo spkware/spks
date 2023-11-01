@@ -2,10 +2,6 @@
 # This should allow running it on a fast disk and copying only the relevant files over
 # The functions and parameters should be exposed and contained in this module. 
 
-try:
-    import docker
-except:
-    print('Could not load docker. Try pip install docker.')
 
 from .utils import *
 from .raw import *
@@ -61,6 +57,7 @@ def get_si_docker_sorter(sorter = 'kilosort2_5-compiled-base'):
     '''
     Pulls docker image; right now supports only kilosort25; add support for other sorters is TODO
     '''
+    import docker
     client = docker.from_env()
     return client.images.pull('spikeinterface/'+sorter)
 
@@ -92,8 +89,10 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 using_scratch = True
         tt = RawRecording(sessionfiles,device = device)
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin'.format(**sorting_folder_dictionary))
-        if not os.path.exists(os.path.dirname(binaryfilepath)):
-                os.makedirs(os.path.dirname(binaryfilepath))
+        output_folder = os.path.dirname(binaryfilepath))
+
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
         binaryfile,metadata = tt.to_binary(binaryfilepath, channels = tt.channel_info.channel_idx.values)
         free_gpu()
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
@@ -103,7 +102,7 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 Nchan = float(len(metadata['channel_idx'])),
                 datatype = 'dat',
                 fbinary = binaryfilepath,
-                fproc = pjoin(os.path.dirname(binaryfilepath),'temp_wh.dat'),
+                fproc = pjoin(output_folder,'temp_wh.dat'),
                 trange = [0.,np.inf],
                 chanMap = channelmappath,
                 fs = metadata['sampling_rate'],
@@ -149,8 +148,7 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 image = get_si_docker_sorter('kilosort2_5-compiled-base')
                 client  = image.client
                 import docker
-                p = os.path.dirname(binaryfilepath)
-                container = client.containers.run(image,  command='ks2_5_compiled {0}'.format(p),
+                container = client.containers.run(image,  command='ks2_5_compiled {0}'.format(output_folder),
                                         volumes=['{0}:{0}'.format(p)],
                                         device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],detach=True)
                 for l in container.logs(stream=True,tail=True):
@@ -182,9 +180,9 @@ fprintf('Saving results to Phy  ')
 rezToPhy(rez, '{output_folder}');            % write to Phy
 exit(1);
 '''
-            matlabfile = pjoin(os.path.dirname(binaryfilepath),'run_ks.m')
+            matlabfile = pjoin(output_folder,'run_ks.m')
             with open(matlabfile,'w') as f:
-                f.write(kilosort25_file.format(output_folder = os.path.dirname(binaryfilepath)))
+                f.write(kilosort25_file.format(output_folder = output_folder)
             cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
             os.system(cmd) # easier to kill than subprocess?
         if do_post_processing:
