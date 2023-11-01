@@ -84,7 +84,8 @@ class SpikeSorting(object):
 def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch', use_docker = False,
              sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
              sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-             do_post_processing = False, device = 'cuda',gpu_index = 0):
+             do_post_processing = False, device = 'cuda',gpu_index = 0,
+             use_precompiled = False):
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
@@ -142,8 +143,9 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
         from scipy.io import savemat
         savemat(opspath, ops,appendmat = False)
         savemat(channelmappath, chanMap,appendmat = False)
-        # get the kilosort image and run it.
-        if use_docker:
+        if use_precompiled:
+            os.system(f'kilosort2_5 {output_folder}') # easier to kill than subprocess?
+        elif use_docker:
                 image = get_si_docker_sorter('kilosort2_5-compiled-base')
                 client  = image.client
                 import docker
@@ -154,7 +156,8 @@ def ks25_run(sessionfiles = [], foldername = None, temporary_folder = '/scratch'
                 for l in container.logs(stream=True,tail=True):
                         print('  [kilosort] - {0}'.format(l.decode().strip('\n')))
         else:
-                kilosort25_file = '''
+            # just run
+            kilosort25_file = '''
 load(fullfile('{output_folder}','ops.mat'))
 load(fullfile('{output_folder}','chanMap.mat'))
 % This assumes kilosort 2.5 and all are installed and on the path
@@ -179,11 +182,11 @@ fprintf('Saving results to Phy  ')
 rezToPhy(rez, '{output_folder}');            % write to Phy
 exit(1);
 '''
-                matlabfile = pjoin(os.path.dirname(binaryfilepath),'run_ks.m')
-                with open(matlabfile,'w') as f:
-                        f.write(kilosort25_file.format(output_folder = os.path.dirname(binaryfilepath)))
-                cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
-                os.system(cmd) # easier to kill than subprocess?
+            matlabfile = pjoin(os.path.dirname(binaryfilepath),'run_ks.m')
+            with open(matlabfile,'w') as f:
+                f.write(kilosort25_file.format(output_folder = os.path.dirname(binaryfilepath)))
+            cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
+            os.system(cmd) # easier to kill than subprocess?
         if do_post_processing:
                 foldername = ks25_post_processing(foldername, sessionfiles,
                                                   move =  using_scratch, 
@@ -246,7 +249,8 @@ from .io import list_spikeglx_binary_paths
 def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_docker = False,
                                   sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                                   sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-                                  do_post_processing = True, move = True,device = 'cuda',gpu_index = 0):
+                                  do_post_processing = True, move = True,device = 'cuda',gpu_index = 0,
+                                  use_precompiled = False):
         '''
         Sort multiprobe neuropixels recordings (will concatenate multiple sessions if a list is passed).
         '''
@@ -265,6 +269,7 @@ def ks25_sort_multiprobe_sessions(sessions,temporary_folder = '/scratch', use_do
                                           sorting_folder_dictionary = sorting_folder_dictionary,
                                           do_post_processing = False,
                                           use_docker = use_docker,
+                                          use_precompiled = use_precompiled,
                                           device=device, gpu_index = gpu_index)
                 print('Completed KILOSORT 2.5. Results folder: {0}'.format(results_folder))
                 if do_post_processing:
