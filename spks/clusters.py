@@ -14,10 +14,10 @@ class Clusters():
                 sampling_rate = None,
                 channel_gains = None,
                 get_waveforms = True,
-                compute_metrics = True,
+                get_metrics = True,
                 name = 'Clusters',
                 load_template_features = True,
-                compute_raw_templates=True):#, remove_duplicate_spikes = False):
+                compute_raw_templates=True):
         '''
         Object to access the spike sorting results like an array
 
@@ -60,14 +60,14 @@ class Clusters():
             self.template_pc_features_ind = self._load_optional('pc_feature_ind.npy',template_pc_features_ind)
             # load the templates used to extract the spikes
             self.templates =  self._load_optional('templates.npy')
-            # load the whitening matrix (to correct for the data having been whitened)
+            # load the whitening matrix (to correct for the templates having been whitened)
             self.whitening_matrix = self._load_optional('whitening_mat_inv.npy')
             if not self.whitening_matrix is None:
                 self.whitening_matrix = self.whitening_matrix.T
         self.cluster_groups = self._load_optional('cluster_group.tsv')
         
         self.cluster_waveforms_mean = None
-        self.cluster_waveforms_std = None
+        self.cluster_waveforms_std = None        
         self.cluster_waveforms = None
         self.sampling_rate = sampling_rate
 
@@ -81,21 +81,44 @@ class Clusters():
             if self.channel_gains is None:
                 self.channel_gains = self.metadata['channel_conversion_factor'].flatten()
 
-        if get_waveforms:
-            self.load_waveforms()
         # compute the raw templates and the position of each cluster based on the template position
         if compute_raw_templates:
             self._compute_template_amplitudes_and_depths()
-
+        # load waveforms
+        if get_waveforms:
+            self.load_waveforms()
+        # load the sampling rate?
         if self.sampling_rate is None:
             self.sampling_rate = 30000.
-    
-        if compute_metrics:
+        # get or compute metrics
+        if get_metrics:
             self.compute_statistics(npre = 30, srate = self.sampling_rate)  # computes the statistics
-        
+
         self.update_cluster_info()
         #if remove_duplicate_spikes:
         #    self.remove_duplicate_spikes()
+    def extract_waveforms(self,data, chmap = None, max_n_spikes = 500, npre = 45, npost = 45, chunksize = 10, save_waveforms = True):
+        
+        if chmap is None:
+            chmap = np.arange(data.shape[1],dtype = int)
+        from .waveforms import extract_waveform_set
+        mwaves = extract_waveform_set(
+            spike_times = self,
+            data = data,
+            chmap = chmap,
+            npre = npre,
+            npost = npost,
+            max_n_spikes = max_n_spikes, # max number of spikes to extract for the average waveforms
+            chunksize = chunksize)
+        
+        waveforms = {}
+        for iclu,w in zip(sp.cluster_id,mwaves):
+            waveforms[int(iclu)] = w
+        if save_waveforms:
+            save_dict_to_h5(resultsfolder/'cluster_waveforms.hdf',waveforms)
+        self.load_waveforms()
+        return waveforms
+
     def __del__(self):
         if hasattr(self,'cluster_waveforms'):
             # close the waveforms if the hdf5 is open
@@ -132,7 +155,11 @@ class Clusters():
         Gets waveform and unit metrics 
         This will compute all metrics possible (some depend on having loaded waveforms). 
         The metrics are:
-            - TODO
+            - isi contamination
+            - firing rate
+            - presence_ratio
+            - amplitude_cutoff
+            - principal waveform metrics
         '''
         from .metrics import isi_contamination, firing_rate, presence_ratio, amplitude_cutoff
 
@@ -173,8 +200,6 @@ class Clusters():
             clumetrics['active_channels'] = activeidx
             self.cluster_info = pd.merge(self.cluster_info,clumetrics)
         
-
-
     def __len__(self):
         return len(self.cluster_info)
 
@@ -255,31 +280,44 @@ class Clusters():
             idx = np.sort(np.random.choice(range(shpe),size=min(n_waveforms,shpe),replace=False))
             return self.cluster_waveforms[str(cluster_id)][idx]
 
-    def load_waveforms(self):
+    def load_waveforms(self,parallel_pool_size = 8):
         '''Loads waveform saved in a cluster_waveforms.hdf file.'''
         if not self.folder is None:
             if (self.folder/'cluster_waveforms.hdf').exists():
-                self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
+                if self.cluster_waveforms is None:
+                    self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
+                self.cluster_waveforms_mean = self._load_optional('cluster_mean_waveforms.npy',None) # the first is the mean
+                self.cluster_waveforms_std = self._load_optional('cluster_mean_waveforms.npy',None) # the second is the std
                 try:
-                    with Pool(12) as pool:
-                        result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
-                                                folder = self.folder),self.cluster_info.cluster_id.values),
-                                        desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
-                        self.cluster_waveforms_mean = np.stack([r[0] for r in result])
-                        self.cluster_waveforms_std = np.stack([r[1] for r in result])
-                        if not self.channel_gains is None:
-                            self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
-                            self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
-
-                    from .waveforms import waveforms_position
-                    self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
-                    self.cluster_info['depth'] = self.cluster_position[:,1]
-                    self.cluster_info['electrode'] = self.cluster_channel
+                    if self.cluster_waveforms_mean is None: # if the average waveforms are not loaded, lets load
+                        with Pool(parallel_pool_size) as pool:
+                            result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
+                                                                        folder = self.folder),self.cluster_info.cluster_id.values),
+                                                      desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
+                            self.cluster_waveforms_mean = np.stack([r[0] for r in result])
+                            self.cluster_waveforms_std = np.stack([r[1] for r in result])
+                        # save if a folder exists
+                        if self.folder.exists(): # save the mean waveforms
+                            np.save(self.folder/'cluster_mean_waveforms.npy',
+                                    np.stack([self.cluster_waveforms_mean,
+                                              self.cluster_waveforms_std]).astype(np.int16)) # the type here should be read from the data
+                    else: # because we saved the std in the second element
+                        self.cluster_waveforms_mean = self.cluster_waveforms_mean[0]
+                        self.cluster_waveforms_std = self.cluster_waveforms_std[1]
                 except:
-                    del self.cluster_waveforms
+                    del self.cluster_waveforms # close the file if it crashed.
                     self.cluster_waveforms = None
+                if not self.channel_gains is None:
+                    self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
+                    self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
+                # compute the position of each cluster and the principal channel
+                from .waveforms import waveforms_position
+                self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
+                self.cluster_info['depth'] = self.cluster_position[:,1]
+                self.cluster_info['electrode'] = self.cluster_channel
+
         if not hasattr(self,'cluster_waveforms'):
-            raise(OSError('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder'.format(self.name)))
+            raise(OSError('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder. Use the .extract_waveforms(rawdata) method.'.format(self.name)))
 
     def _load_required(self,file,var = None):
         '''
