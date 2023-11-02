@@ -83,6 +83,29 @@ def chunk_indices(data, axis = 0, chunksize = 60000, min_chunksize = 512):
         chunks = np.hstack([chunks, data.shape[1]])
     return [[int(chunks[i]), int(chunks[i+1])] for i in range(len(chunks)-1)]
 
+def chunk_array_of_indices(indices, chunksize=60000, min_chunksize=512):
+    '''
+    Alternative chunking. Pass the actual indices or slice that should be chunked.
+    
+    Useful if accessing only some parts of an array by chunks, but slower than chunk_indices()
+    
+    chunked_indices = chunk_array_slice(indices)
+    
+    Max Melin - Nov 2023
+    '''
+    assert min_chunksize < chunksize, "Minimum chunksize must be less than desired chunksize"
+    chunks = []
+    for c in range(len(indices) // chunksize):
+        inds2get = indices[c*chunksize : (c+1)*chunksize]
+        if len(inds2get):
+            chunks.append(inds2get.tolist())
+    chunks.append(indices[(c+1)*chunksize:]) #tack on the last chunk
+                              
+    if len(chunks[-1]) < min_chunksize: #if last chunk is too small, append it to the previous chunk
+       chunks[-2].extend(chunks[-1]) 
+       chunks = chunks[:-1]
+    return chunks
+
 
 def _check_arg(x, xname):
     x = np.asarray(x)
