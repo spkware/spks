@@ -80,7 +80,7 @@ def chunk_indices(data, axis = 0, chunksize = 60000, min_chunksize = 512):
     if (data.shape[1] - chunks[-1]) < min_chunksize:
         chunks[-1] = data.shape[axis]
     if not chunks[-1] == data.shape[axis]:
-        chunks = np.hstack([chunks, self.shape[1]])
+        chunks = np.hstack([chunks, data.shape[1]])
     return [[int(chunks[i]), int(chunks[i+1])] for i in range(len(chunks)-1)]
 
 
