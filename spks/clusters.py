@@ -3,21 +3,21 @@ from .waveforms import *
 
 class Clusters():
     def __init__(self,folder = None,
-                spike_times = None, 
-                spike_clusters = None,
-                spike_template_amplitudes = None,
-                spike_templates = None,
-                spike_pc_features = None,
-                template_pc_features_ind = None,
-                channel_positions = None, 
-                channel_map = None,
-                sampling_rate = None,
-                channel_gains = None,
-                get_waveforms = True,
-                get_metrics = True,
-                name = 'Clusters',
-                load_template_features = True,
-                compute_raw_templates=True):
+                 spike_times = None, 
+                 spike_clusters = None,
+                 spike_template_amplitudes = None,
+                 spike_templates = None,
+                 spike_pc_features = None,
+                 template_pc_features_ind = None,
+                 channel_positions = None, 
+                 channel_map = None,
+                 sampling_rate = None,
+                 channel_gains = None,
+                 get_waveforms = True,
+                 get_metrics = True,
+                 name = 'Clusters',
+                 load_template_features = None,  #if None it will load only if needed to compute metrics, otherwise set boolean
+                 compute_raw_templates=True):
         '''
         Object to access the spike sorting results like an array
 
@@ -55,6 +55,13 @@ class Clusters():
         self.whitening_matrix = None
         self.template_pc_features = None
         self.spike_pc_features = None
+        if load_template_features is None:
+            load_template_features = True
+            #check if metrics file exists
+            if not self.folder is None:
+                if (self.folder/'cluster_info_metrics.tsv').exists():
+                    load_template_features = False # no need for templates metrics are computed
+                    
         if load_template_features:  # this can take a while, disable if you don't need to estimate amplitudes or so
             # Load the amplitudes used to fit the template
             self.spike_template_amplitudes = self._load_optional('amplitudes.npy',spike_template_amplitudes)
@@ -98,11 +105,29 @@ class Clusters():
             self.sampling_rate = 30000.
         # get or compute metrics
         if get_metrics:
-            self.compute_statistics(npre = None, srate = self.sampling_rate)  # computes the statistics
+            self.compute_statistics(npre = None, srate = self.sampling_rate)  # computes the statistics uses npre as symmetric
 
         self.update_cluster_info()
 
     def extract_waveforms(self,data, chmap = None, max_n_spikes = 500, npre = 45, npost = 45, chunksize = 10, save_folder_path = None):
+        '''
+        Extract waveforms from raw data
+        
+        Parameters
+        ----------
+        data
+        chmap
+        max_n_spikes
+        npre
+        npost
+        chunksize
+        save_folder_path
+        
+        Returns
+        -------
+        waveforms: dict 
+            keys are cluster ids
+        '''
         if chmap is None:
             chmap = np.arange(data.shape[1],dtype = int)
         from .waveforms import extract_waveform_set
@@ -136,7 +161,10 @@ class Clusters():
         device = 'cpu' # no point in overloading the gpu
         self._spike_clusters_t = torch.from_numpy(self.spike_clusters.astype('int32')).squeeze().to(device) 
 
-    def update_cluster_info(self): 
+    def update_cluster_info(self):
+        '''
+        Run this when you change the cluster_info DataFrame to update the object 
+        '''
         self.__dict__.update(dict(zip(list(self.cluster_info), self.cluster_info.to_numpy().T)))
 
     def get_cluster(self,cluster_id):
@@ -216,6 +244,7 @@ class Clusters():
         if not self.cluster_info is None and not self.cluster_waveforms_mean is None: # save if the folder exists to make it faster to load
             if self.folder.exists():
                 self.cluster_info.to_csv(self.folder/'cluster_info_metrics.tsv',sep = '\t',index = False)
+
     def __len__(self):
         return len(self.cluster_info)
 
