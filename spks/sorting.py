@@ -235,7 +235,7 @@ def ks25_post_processing(resultsfolder,
         meta = load_dict_from_h5(list(resultsfolder.glob('filtered_recording.*.metadata.hdf'))[0])
         from .io import map_binary
         data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
-        sp.compute_waveforms(data,chmap,max_n_spikes,save_waveforms = True)
+        sp.compute_waveforms(data,chmap,max_n_spikes,save_folder_path = resultsfolder)
         
         # 4. move the files to a new folder
         if move:

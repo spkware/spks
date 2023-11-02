@@ -92,13 +92,11 @@ class Clusters():
             self.sampling_rate = 30000.
         # get or compute metrics
         if get_metrics:
-            self.compute_statistics(npre = 30, srate = self.sampling_rate)  # computes the statistics
+            self.compute_statistics(npre = None, srate = self.sampling_rate)  # computes the statistics
 
         self.update_cluster_info()
-        #if remove_duplicate_spikes:
-        #    self.remove_duplicate_spikes()
-    def extract_waveforms(self,data, chmap = None, max_n_spikes = 500, npre = 45, npost = 45, chunksize = 10, save_waveforms = True):
-        
+
+    def extract_waveforms(self,data, chmap = None, max_n_spikes = 500, npre = 45, npost = 45, chunksize = 10, save_folder_path = None):
         if chmap is None:
             chmap = np.arange(data.shape[1],dtype = int)
         from .waveforms import extract_waveform_set
@@ -114,8 +112,11 @@ class Clusters():
         waveforms = {}
         for iclu,w in zip(sp.cluster_id,mwaves):
             waveforms[int(iclu)] = w
-        if save_waveforms:
-            save_dict_to_h5(resultsfolder/'cluster_waveforms.hdf',waveforms)
+        if not save_folder_path is None:
+            if Path(save_folder_path).exists():
+                save_dict_to_h5(save_folder_path/'cluster_waveforms.hdf',waveforms)
+            else:
+                print(f'Folder not found {savefolder}')
         self.load_waveforms()
         return waveforms
 
@@ -150,7 +151,7 @@ class Clusters():
         else:
             return sp
 
-    def compute_statistics(self,npre,srate):
+    def compute_statistics(self,srate = 30000.,npre = None,recompute = False):
         '''
         Gets waveform and unit metrics 
         This will compute all metrics possible (some depend on having loaded waveforms). 
@@ -161,8 +162,13 @@ class Clusters():
             - amplitude_cutoff
             - principal waveform metrics
         '''
-        from .metrics import isi_contamination, firing_rate, presence_ratio, amplitude_cutoff
 
+        cluster_info_metrics = self._load_optional('cluster_info_metrics.tsv',None)
+        if not cluster_info_metrics is None and not recompute:
+            self.cluster_info = cluster_info_metrics
+            return
+        from .metrics import isi_contamination, firing_rate, presence_ratio, amplitude_cutoff
+        
         unitmetrics = []
         self.min_sampled_time  = np.min(self.spike_times)
         self.max_sampled_time  = np.max(self.spike_times)
@@ -191,6 +197,8 @@ class Clusters():
             for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
             desc = '[{0}] Computing waveform stats'.format(self.name)):
                 wave = waveforms[:,cluster_channel]
+                if npre is None:
+                    npre = int(wave.shape[0]/2)
                 clumetrics.append(dict(cluster_id = iclu,
                                 **compute_waveform_metrics(wave,npre=npre,srate=srate)))
             clumetrics = pd.DataFrame(clumetrics)
@@ -199,7 +207,9 @@ class Clusters():
             clumetrics['n_active_channels'] = nactive_channels
             clumetrics['active_channels'] = activeidx
             self.cluster_info = pd.merge(self.cluster_info,clumetrics)
-        
+        if not self.cluster_info is None: # save if the folder exists to make it faster to load
+            if self.folder.exists():
+                self.cluster_info.to_csv(self.folder/'cluster_info_metrics.tsv',sep = '\t',index = False)
     def __len__(self):
         return len(self.cluster_info)
 
