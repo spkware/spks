@@ -1,4 +1,5 @@
 from .utils import *
+from .spikeglx_utils import load_spikeglx_binary,load_spikeglx_mtsdecomp
 import tqdm as tqdm
 from pathlib import Path
 
