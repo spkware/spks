@@ -2,11 +2,10 @@
 
 Electrophysiology analysis package for large-scale electrophysiology
 
-```diff
-! This package is under heavy development - we'll post here when stable
-```
+<code style="color : name_color">! This package is under heavy development - we'll post here when stable! </code>
 
-`This package aims to provide transparent access to the code being used to process and analyse data; the documentation will provide references and a description of what the code is doing in each step.`
+
+*This package aims to provide transparent access to the code being used to process and analyse data; the documentation will provide references and (hopefully) a description of what the code is doing in each step.*
 
 #### Instalation
 
