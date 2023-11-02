@@ -16,8 +16,7 @@ class Clusters():
                  get_waveforms = True,
                  get_metrics = True,
                  name = 'Clusters',
-                 load_template_features = None,  #if None it will load only if needed to compute metrics, otherwise set boolean
-                 compute_raw_templates=True):
+                 load_template_features = None): #if None it will load only if needed to compute metrics, otherwise set boolean
         '''
         Object to access the spike sorting results like an array
 
@@ -67,6 +66,8 @@ class Clusters():
                                         spike_templates,
                                         spike_pc_features,
                                         template_pc_features_ind)
+            # compute the raw templates and the position of each cluster based on the template position
+            self.compute_template_amplitudes_and_depths()
 
         self.cluster_groups = self._load_optional('cluster_group.tsv')
         
@@ -85,9 +86,6 @@ class Clusters():
             if self.channel_gains is None:
                 self.channel_gains = self.metadata['channel_conversion_factor'].flatten()
 
-        # compute the raw templates and the position of each cluster based on the template position
-        if compute_raw_templates:
-            self.compute_template_amplitudes_and_depths()
         # load waveforms
         if get_waveforms:
             self.load_waveforms()
