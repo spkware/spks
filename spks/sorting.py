@@ -239,7 +239,7 @@ def ks25_post_processing(resultsfolder,
         from .io import map_binary
         data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
         # don't filter the waveforms because it was done before.
-        sp.extract_waveforms(data,chmap,max_n_spikes,save_folder_path = resultsfolder,filter_par = None)
+        sp.extract_waveforms(data,np.arange(meta['nchannels']),max_n_spikes=max_n_spikes,save_folder_path = resultsfolder,filter_par = None)
         
         # 4. move the files to a new folder
         if move:
