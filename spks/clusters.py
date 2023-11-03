@@ -94,7 +94,8 @@ class Clusters():
             self.sampling_rate = 30000.
         # get or compute metrics
         if get_metrics:
-            self.compute_statistics(npre = None, srate = self.sampling_rate)  # computes the statistics uses npre as symmetric
+            # computes the statistics, assumes npre as symmetric
+            self.compute_statistics(npre = None, srate = self.sampling_rate)  
 
         self.update_cluster_info()
 
@@ -119,7 +120,15 @@ class Clusters():
         if not self.whitening_matrix is None:
             self.whitening_matrix = self.whitening_matrix.T
             
-    def extract_waveforms(self,data, chmap = None, max_n_spikes = 500, npre = 45, npost = 45, chunksize = 10, save_folder_path = None):
+    def extract_waveforms(self,data, chmap = None,
+                          max_n_spikes = 1000,
+                          npre = 45, npost = 45,
+                          chunksize = 20,
+                          filter_par = dict(order = 3,
+                                            flow = 300/15000,
+                                            fhigh = 10000/15000,
+                                            car = True),
+                          save_folder_path = None):
         '''
         Extract waveforms from raw data
         
@@ -139,7 +148,10 @@ class Clusters():
             keys are cluster ids
         '''
         if chmap is None:
-            chmap = np.arange(data.shape[1],dtype = int)
+            if hasattr(data,'channel_info'):
+                chmap = data.channel_info.channel_idx.values
+            else:
+                chmap = np.arange(data.shape[1],dtype = int)
         from .waveforms import extract_waveform_set
         mwaves = extract_waveform_set(
             spike_times = self,
@@ -151,10 +163,19 @@ class Clusters():
             chunksize = chunksize)
         
         waveforms = {}
+        if not filter_par is None:
+            p_bar = tqdm(desc = 'Filtering waveforms',total = len(self.cluster_id))
         for iclu,w in zip(self.cluster_id,mwaves):
-            waveforms[int(iclu)] = w
+            if filter_par is None:
+                waveforms[int(iclu)] = w
+            else:
+                waveforms[int(iclu)] = filter_waveforms(w,**filter_par)
+                p_bar.update(1)
+        if not filter_par is None:
+            del p_bar
         if not save_folder_path is None:
             if Path(save_folder_path).exists():
+                print('[{0}] Saving waveforms to {1}'.format(save_folder_path))
                 save_dict_to_h5(save_folder_path/'cluster_waveforms.hdf',waveforms)
             else:
                 print(f'Folder not found {savefolder}')
@@ -482,3 +503,47 @@ def estimate_spike_positions_from_features(spike_templates,spike_pc_features,tem
     pc_features = numpy_to_tensor(spike_pc_features[:,consider_feature].squeeze())**2 # take the first pc for the features
     spike_locations = (torch.sum(feature_coords.permute((2,0,1))*pc_features,dim=2)/torch.sum(pc_features,dim=1)).t()
     return tensor_to_numpy(spike_locations)
+
+
+def filter_waveforms(waveforms,flow = 300/15000, fhigh = 10000/15000,order = 3,car = True):
+    ''' 
+    Filter spike waveforms.
+    Parameters
+    ----------
+    waveforms Nwaves x time samples x nchannels
+    flow
+    fhigh
+    order
+    car
+
+    Returns
+    -------
+    filtered waveforms
+    
+    Joao Couto - spks 2023
+    '''
+    if not flow is None or fhigh is None:
+        b,a = signal.butter(order,(flow,fhigh),'pass')
+        waveforms = signal.filtfilt(b,a,waveforms,axis = 1)
+    if car:
+        waveforms = (waveforms.T - np.median(waveforms,axis=2).T).T
+    return waveforms
+
+def filter_waveforms_gpu(waveforms,low = 300/15000, high = 10000/15000,order = 3,car = True,device = 'cpu',
+                         padlen = 80):
+    '''
+    this is work in progress, not tested.    Joao Couto - Nov 2023
+    '''
+    T = numpy_to_tensor(waveforms.astype(np.float32),device = device)
+    b,a = butter(order,[low, high], btype='bandpass')
+    aa = torch.from_numpy(np.array(a,dtype='float32')).to(device)
+    bb = torch.from_numpy(np.array(b,dtype='float32')).to(device)
+    X = torch.zeros_like(T)
+    for i in range(T.shape[0]):
+        t = torch.nn.functional.pad(T[i].T,(padlen,padlen),'replicate') # apply padding for filter
+        X[i] = torchaudio.functional.filtfilt(t,aa,
+                                                  bb,clamp=False)[:,padlen:-padlen].T
+    if car:
+        X = (X.permute(2,0,1) - torch.median(X,axis=2).values).permute(1,2,0)
+        
+    return tensor_to_numpy(X).astype(waveforms.dtype)

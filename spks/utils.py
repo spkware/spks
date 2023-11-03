@@ -18,6 +18,7 @@ from multiprocessing import cpu_count
 import h5py as h5
 import datetime
 import shutil
+from scipy import signal
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import interp1d
 
@@ -349,3 +350,30 @@ def load_dict_from_h5(filename):
                         ko = int(o)
                     data[no][ko] = f[k][o][()]
     return data
+
+def _parinit():
+    import os
+    os.environ['MKL_NUM_THREADS'] = "1"
+    os.environ['OMP_NUM_THREADS'] = "1"
+
+def runpar(f,X,nprocesses = None, silent = True,desc = None,**kwargs):
+    ''' 
+    res = runpar(function,          # function to execute
+                 data,              # data to be passed to the function
+                 nprocesses = None, # defaults to the number of cores on the machine
+                 **kwargs)          # additional arguments passed to the function (dictionary)
+
+    Joao Couto - wfield, 2020
+
+    '''
+    if nprocesses is None:
+        nprocesses = cpu_count()
+    with Pool(initializer = _parinit, processes=nprocesses) as pool:
+        if silent:
+            res = imap(partial(f,**kwargs),X)
+        else:
+            res = []
+            for r in tqdm(pool.imap_ordered(partial(f,**kwargs),X),
+                          total = len(X),desc = desc):
+                res.append(r)
+    return res
