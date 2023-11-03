@@ -64,7 +64,17 @@ def tensor_to_numpy(X):
     '''Converts a tensor to numpy array.''' 
     return X.to('cpu').numpy()
 
+def numpy_to_tensor(X, device = 'cpu'):
+    '''Converts a numpy array to tensor to numpy array.'''
+    if X.dtype in [np.uint32]:
+        dtype = np.int64
+    else:
+        dtype = X.dtype
+    return torch.from_numpy(X.astype(dtype)).to(device)
+
+
 def free_gpu():
+    ''' free torch gpu memory '''
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 

@@ -283,7 +283,7 @@ def extract_memmapped_waveforms(data, scratch_directory, timestamps, mmap_output
     return tfile
 
 def extract_waveform_set(spike_times, data, chmap=None,scratch_directory=None, 
-                         max_n_spikes=1000,npre=30, npost=30, **extract_waveforms_kwargs):
+                         max_n_spikes=1000,npre=45, npost=45, **extract_waveforms_kwargs):
     """
     
     Take a list of spike_times which is a list of the timestamps for each cluster. 

@@ -3,21 +3,20 @@ from .waveforms import *
 
 class Clusters():
     def __init__(self,folder = None,
-                spike_times = None, 
-                spike_clusters = None,
-                spike_template_amplitudes = None,
-                spike_templates = None,
-                spike_pc_features = None,
-                template_pc_features_ind = None,
-                channel_positions = None, 
-                channel_map = None,
-                sampling_rate = None,
-                channel_gains = None,
-                get_waveforms = True,
-                compute_metrics = True,
-                name = 'Clusters',
-                load_template_features = True,
-                compute_raw_templates=True):#, remove_duplicate_spikes = False):
+                 spike_times = None, 
+                 spike_clusters = None,
+                 spike_template_amplitudes = None,
+                 spike_templates = None,
+                 spike_pc_features = None,
+                 template_pc_features_ind = None,
+                 channel_positions = None, 
+                 channel_map = None,
+                 sampling_rate = None,
+                 channel_gains = None,
+                 get_waveforms = True,
+                 get_metrics = True,
+                 name = 'Clusters',
+                 load_template_features = None): #if None it will load only if needed to compute metrics, otherwise set boolean
         '''
         Object to access the spike sorting results like an array
 
@@ -48,26 +47,32 @@ class Clusters():
         self.channel_positions =  self._load_optional('channel_positions.npy',channel_positions)
         self.channel_map =  self._load_optional('channel_map.npy',channel_map)
         self.channel_gains = channel_gains
-
+        # defaults in case load_template_features is False
+        self.spike_template_amplitudes = None
+        self.spike_templates = None
+        self.templates = None
+        self.whitening_matrix = None
+        self.template_pc_features = None
+        self.spike_pc_features = None
+        if load_template_features is None:
+            load_template_features = True
+            #check if metrics file exists
+            if not self.folder is None:
+                if (self.folder/'cluster_info_metrics.tsv').exists():
+                    load_template_features = False # no need for templates metrics are computed
+                    
         if load_template_features:  # this can take a while, disable if you don't need to estimate amplitudes or so
-            # Load the amplitudes used to fit the template
-            self.spike_template_amplitudes = self._load_optional('amplitudes.npy',spike_template_amplitudes)
-            # load spike templates (which template was fitted) for each spike
-            self.spike_templates = self._load_optional('spike_templates.npy',spike_templates)
-            # load the principle component features for each spike nspikes x featuresperchannel x nfeatures            
-            self.spike_pc_features = self._load_optional('pc_features.npy',spike_pc_features)
-            # template index for each PC feature
-            self.template_pc_features_ind = self._load_optional('pc_feature_ind.npy',template_pc_features_ind)
-            # load the templates used to extract the spikes
-            self.templates =  self._load_optional('templates.npy')
-            # load the whitening matrix (to correct for the data having been whitened)
-            self.whitening_matrix = self._load_optional('whitening_mat_inv.npy')
-            if not self.whitening_matrix is None:
-                self.whitening_matrix = self.whitening_matrix.T
+            self.load_template_features(spike_template_amplitudes,
+                                        spike_templates,
+                                        spike_pc_features,
+                                        template_pc_features_ind)
+            # compute the raw templates and the position of each cluster based on the template position
+            self.compute_template_amplitudes_and_depths()
+
         self.cluster_groups = self._load_optional('cluster_group.tsv')
         
         self.cluster_waveforms_mean = None
-        self.cluster_waveforms_std = None
+        self.cluster_waveforms_std = None        
         self.cluster_waveforms = None
         self.sampling_rate = sampling_rate
 
@@ -81,21 +86,81 @@ class Clusters():
             if self.channel_gains is None:
                 self.channel_gains = self.metadata['channel_conversion_factor'].flatten()
 
+        # load waveforms
         if get_waveforms:
             self.load_waveforms()
-        # compute the raw templates and the position of each cluster based on the template position
-        if compute_raw_templates:
-            self._compute_template_amplitudes_and_depths()
-
+        # load the sampling rate?
         if self.sampling_rate is None:
             self.sampling_rate = 30000.
-    
-        if compute_metrics:
-            self.compute_statistics(npre = 30, srate = self.sampling_rate)  # computes the statistics
-        
+        # get or compute metrics
+        if get_metrics:
+            self.compute_statistics(npre = None, srate = self.sampling_rate)  # computes the statistics uses npre as symmetric
+
         self.update_cluster_info()
-        #if remove_duplicate_spikes:
-        #    self.remove_duplicate_spikes()
+
+    def load_template_features(self,
+                               spike_template_amplitudes=None,
+                               spike_templates = None,
+                               spike_pc_features = None,
+                               template_pc_features_ind = None):
+        ''' Load the template features and amplitudes '''
+        # Load the amplitudes used to fit the template
+        self.spike_template_amplitudes = self._load_optional('amplitudes.npy',spike_template_amplitudes)
+        # load spike templates (which template was fitted) for each spike
+        self.spike_templates = self._load_optional('spike_templates.npy',spike_templates)
+        # load the principle component features for each spike nspikes x featuresperchannel x nfeatures            
+        self.spike_pc_features = self._load_optional('pc_features.npy',spike_pc_features)
+        # template index for each PC feature
+        self.template_pc_features_ind = self._load_optional('pc_feature_ind.npy',template_pc_features_ind)
+        # load the templates used to extract the spikes
+        self.templates =  self._load_optional('templates.npy')
+        # load the whitening matrix (to correct for the templates having been whitened)
+        self.whitening_matrix = self._load_optional('whitening_mat_inv.npy')
+        if not self.whitening_matrix is None:
+            self.whitening_matrix = self.whitening_matrix.T
+            
+    def extract_waveforms(self,data, chmap = None, max_n_spikes = 500, npre = 45, npost = 45, chunksize = 10, save_folder_path = None):
+        '''
+        Extract waveforms from raw data
+        
+        Parameters
+        ----------
+        data
+        chmap
+        max_n_spikes
+        npre
+        npost
+        chunksize
+        save_folder_path
+        
+        Returns
+        -------
+        waveforms: dict 
+            keys are cluster ids
+        '''
+        if chmap is None:
+            chmap = np.arange(data.shape[1],dtype = int)
+        from .waveforms import extract_waveform_set
+        mwaves = extract_waveform_set(
+            spike_times = self,
+            data = data,
+            chmap = chmap,
+            npre = npre,
+            npost = npost,
+            max_n_spikes = max_n_spikes, # max number of spikes to extract for the average waveforms
+            chunksize = chunksize)
+        
+        waveforms = {}
+        for iclu,w in zip(self.cluster_id,mwaves):
+            waveforms[int(iclu)] = w
+        if not save_folder_path is None:
+            if Path(save_folder_path).exists():
+                save_dict_to_h5(save_folder_path/'cluster_waveforms.hdf',waveforms)
+            else:
+                print(f'Folder not found {savefolder}')
+        self.load_waveforms()
+        return waveforms
+
     def __del__(self):
         if hasattr(self,'cluster_waveforms'):
             # close the waveforms if the hdf5 is open
@@ -106,7 +171,10 @@ class Clusters():
         device = 'cpu' # no point in overloading the gpu
         self._spike_clusters_t = torch.from_numpy(self.spike_clusters.astype('int32')).squeeze().to(device) 
 
-    def update_cluster_info(self): 
+    def update_cluster_info(self):
+        '''
+        Run this when you change the cluster_info DataFrame to update the object 
+        '''
         self.__dict__.update(dict(zip(list(self.cluster_info), self.cluster_info.to_numpy().T)))
 
     def get_cluster(self,cluster_id):
@@ -127,15 +195,24 @@ class Clusters():
         else:
             return sp
 
-    def compute_statistics(self,npre,srate):
+    def compute_statistics(self,srate = 30000.,npre = None,recompute = False):
         '''
         Gets waveform and unit metrics 
         This will compute all metrics possible (some depend on having loaded waveforms). 
         The metrics are:
-            - TODO
+            - isi contamination
+            - firing rate
+            - presence_ratio
+            - amplitude_cutoff
+            - principal waveform metrics
         '''
-        from .metrics import isi_contamination, firing_rate, presence_ratio, amplitude_cutoff
 
+        cluster_info_metrics = self._load_optional('cluster_info_metrics.tsv',None)
+        if not cluster_info_metrics is None and not recompute:
+            self.cluster_info = cluster_info_metrics
+            return
+        from .metrics import isi_contamination, firing_rate, presence_ratio, amplitude_cutoff
+        
         unitmetrics = []
         self.min_sampled_time  = np.min(self.spike_times)
         self.max_sampled_time  = np.max(self.spike_times)
@@ -164,6 +241,8 @@ class Clusters():
             for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
             desc = '[{0}] Computing waveform stats'.format(self.name)):
                 wave = waveforms[:,cluster_channel]
+                if npre is None:
+                    npre = int(wave.shape[0]/2)
                 clumetrics.append(dict(cluster_id = iclu,
                                 **compute_waveform_metrics(wave,npre=npre,srate=srate)))
             clumetrics = pd.DataFrame(clumetrics)
@@ -172,8 +251,9 @@ class Clusters():
             clumetrics['n_active_channels'] = nactive_channels
             clumetrics['active_channels'] = activeidx
             self.cluster_info = pd.merge(self.cluster_info,clumetrics)
-        
-
+        if not self.cluster_info is None and not self.cluster_waveforms_mean is None: # save if the folder exists to make it faster to load
+            if self.folder.exists():
+                self.cluster_info.to_csv(self.folder/'cluster_info_metrics.tsv',sep = '\t',index = False)
 
     def __len__(self):
         return len(self.cluster_info)
@@ -217,15 +297,30 @@ class Clusters():
         if not self.spike_pc_features is None:
             np.save(folder/'pc_features.npy', self.spike_pc_features)
     
-    def _compute_template_amplitudes_and_depths(self):
+    def compute_template_amplitudes_and_depths(self):
+        '''
+
+        Compute the amplitude and depths(positions) of each spike from the template fitting
+
+        This takes a while.
+
+        '''
+
+        if self.templates is None:
+            # then try to load the templates
+            self.load_template_features()
+            
         self.templates_raw = None
         self.templates_amplitude = None
         self.templates_position = None
         self.spike_amplitudes = None
         self.spike_positions = None
+
         if (not self.templates is None and 
             not self.whitening_matrix is None and 
             not self.channel_positions is None):
+            # TODO: move to a separate function
+            #
             # the raw templates are the dot product of the templates by the whitening matrix
             self.templates_raw = np.dot(self.templates,self.whitening_matrix)
             # compute the peak to peak of each template
@@ -233,8 +328,8 @@ class Clusters():
             # the amplitude of each template is the max of the peak difference for all channels
             self.templates_amplitude = templates_peak_to_peak.max(axis=1)
             templates_amplitude = self.templates_amplitude.copy()
-            templates_amplitude[~np.isfinite(templates_amplitude)] = np.nanmean(templates_amplitude) # Fix for when kilosort returns NaN templates, make them the average of all templates
-
+            # Fix for when kilosort returns NaN templates, make them the average of all templates
+            templates_amplitude[~np.isfinite(templates_amplitude)] = np.nanmean(templates_amplitude)
             # compute the center of mass (X,Y) of the templates
             from .waveforms import waveforms_position
             self.template_position,self.template_channel = waveforms_position(self.templates_raw,self.channel_positions)
@@ -243,10 +338,22 @@ class Clusters():
             if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
                  if self.spike_pc_features.shape[0] == len(self.spike_times):
                     self.spike_positions = None
+                    # Compute the spike depth from the features
+                    self.spike_positions = estimate_spike_positions_from_features(
+                        self.spike_templates,
+                        self.spike_pc_features,
+                        self.template_pc_features_ind,
+                        self.channel_positions)
+                 else:
+                     print('''[0] warning spike_pc_features does not have the same size as spike_amplitudes.
+ 
+Spike depths will be based on the template position. Re-sort the dataset to fix {1}'''
+                           .format(self.name,self.folder))
+                
             if self.spike_positions is None:
-                # without spike features, one can estimate the position from the templates used to fit.
+                # without spike features, one can estimate the position from the templates used to fit but it is not great
                 self.spike_positions = self.template_position[self.spike_templates,:].squeeze()
-
+                
     def get_cluster_waveforms(self,cluster_id,n_waveforms = 50):
         if not hasattr(self,'cluster_waveforms'):
             self.load_waveforms()
@@ -255,31 +362,47 @@ class Clusters():
             idx = np.sort(np.random.choice(range(shpe),size=min(n_waveforms,shpe),replace=False))
             return self.cluster_waveforms[str(cluster_id)][idx]
 
-    def load_waveforms(self):
+    def load_waveforms(self,parallel_pool_size = 8):
         '''Loads waveform saved in a cluster_waveforms.hdf file.'''
         if not self.folder is None:
-            if (self.folder/'cluster_waveforms.hdf').exists():
-                self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
-                try:
-                    with Pool(12) as pool:
-                        result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
-                                                folder = self.folder),self.cluster_info.cluster_id.values),
-                                        desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
-                        self.cluster_waveforms_mean = np.stack([r[0] for r in result])
-                        self.cluster_waveforms_std = np.stack([r[1] for r in result])
-                        if not self.channel_gains is None:
-                            self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
-                            self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
+            self.cluster_waveforms_mean = self._load_optional('cluster_mean_waveforms.npy',None) # the first is the mean
+            self.cluster_waveforms_std = self._load_optional('cluster_mean_waveforms.npy',None) # the second is the std
+            if not self.cluster_waveforms_mean is None:
+                # because we saved the std in the second element
+                self.cluster_waveforms_mean = self.cluster_waveforms_mean[0]
+                self.cluster_waveforms_std = self.cluster_waveforms_std[1]
 
-                    from .waveforms import waveforms_position
-                    self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
-                    self.cluster_info['depth'] = self.cluster_position[:,1]
-                    self.cluster_info['electrode'] = self.cluster_channel
+            if (self.folder/'cluster_waveforms.hdf').exists():
+                if self.cluster_waveforms is None:
+                    self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
+                try:
+                    if self.cluster_waveforms_mean is None: # if the average waveforms are not loaded, lets load
+                        with Pool(parallel_pool_size) as pool:
+                            result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
+                                                                        folder = self.folder),self.cluster_info.cluster_id.values),
+                                                      desc='[{0}] Computing mean waveforms'.format(self.name), total = len(self))]
+                            self.cluster_waveforms_mean = np.stack([r[0] for r in result])
+                            self.cluster_waveforms_std = np.stack([r[1] for r in result])
+                        # save if a folder exists
+                        if self.folder.exists(): # save the mean waveforms
+                            np.save(self.folder/'cluster_mean_waveforms.npy',
+                                    np.stack([self.cluster_waveforms_mean,
+                                              self.cluster_waveforms_std]).astype(np.int16)) # the type here should be read from the data
                 except:
-                    del self.cluster_waveforms
-                    self.cluster_waveforms = None
-        if not hasattr(self,'cluster_waveforms'):
-            raise(OSError('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder'.format(self.name)))
+                    del self.cluster_waveforms # close the file if it crashed.
+                if not hasattr(self,'cluster_waveforms'):
+                    print('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder. Use the .extract_waveforms(rawdata) method.'.format(self.name))
+
+        if not self.channel_gains is None and not self.cluster_waveforms_mean is None:
+            self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
+            self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
+        if not self.cluster_waveforms_mean is None:
+            # compute the position of each cluster and the principal channel
+            from .waveforms import waveforms_position
+            self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
+            self.cluster_info['depth'] = self.cluster_position[:,1]
+            self.cluster_info['electrode'] = self.cluster_channel
+
 
     def _load_required(self,file,var = None):
         '''
@@ -321,4 +444,34 @@ def _mean_std_from_cluster_waveforms(icluster,folder):
 
     
     
+def estimate_spike_positions_from_features(spike_templates,spike_pc_features,template_pc_features_ind,channel_positions,consider_feature=0):
+    '''
+    Estimates the spike 2d location based on a feature e.g the PCs.
     
+    This is adapted from the cortexlab/spikes repository to estimate spikes based on the PC features.
+    TODO: make this work for voltage as well.
+
+    Parameters
+    ----------
+    spike_templates: nspikes tesmplates used for each spike
+    spike_pc_features: nspikes x nfeatures x nchannels
+    template_pc_features_ind: indice of the channels for the templates nchannels
+    channel_positions: position of each channel
+    consider_feature: feature to consider
+
+    Returns
+    -------
+    spike_locations: nspikes
+
+    Joao Couto - spks 2023
+    '''
+    # channel index for each feature
+    feature_channel_idx = torch.index_select(numpy_to_tensor(template_pc_features_ind),dim=0,
+                                            index = numpy_to_tensor(spike_templates))
+    # 2d coordinates for each channel feature
+    feature_coords = torch.index_select(numpy_to_tensor(channel_positions),dim=0,
+                                  index=feature_channel_idx.reshape(-1)).reshape([*feature_channel_idx.shape,*channel_positions.shape[1:]])
+    # ycoords of those channels?
+    pc_features = numpy_to_tensor(spike_pc_features[:,consider_feature].squeeze())**2 # take the first pc for the features
+    spike_locations = (torch.sum(feature_coords.permute((2,0,1))*pc_features,dim=2)/torch.sum(pc_features,dim=1)).t()
+    return tensor_to_numpy(spike_locations)

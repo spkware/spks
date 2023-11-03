@@ -232,26 +232,14 @@ def ks25_post_processing(resultsfolder,
         # 1. remove duplicates
         from .clusters import Clusters
         resultsfolder = Path(resultsfolder)
-        sp = Clusters(resultsfolder,compute_metrics = False)
+        sp = Clusters(resultsfolder,get_metrics = False)
         sp.remove_duplicate_spikes(overwrite_phy=True)
-        # 2. compute_waveforms
+        # 2. compute_waveforms and store to disk        
         meta = load_dict_from_h5(list(resultsfolder.glob('filtered_recording.*.metadata.hdf'))[0])
-        
         from .io import map_binary
         data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
+        sp.compute_waveforms(data,chmap,max_n_spikes,save_folder_path = resultsfolder)
         
-        from .waveforms import extract_waveform_set
-        mwaves = extract_waveform_set(
-                spike_times = sp,
-                data = data,
-                chmap = np.arange(meta['nchannels']),
-                max_n_spikes = max_n_spikes, # max number of spikes to extract for the average waveforms
-                chunksize = 10)
-        # 3. store a sample of 1000 waveforms to disk.
-        waveforms = {}
-        for iclu,w in zip(sp.cluster_id,mwaves):
-                waveforms[int(iclu)] = w
-        save_dict_to_h5(resultsfolder/'cluster_waveforms.hdf',waveforms)
         # 4. move the files to a new folder
         if move:
                 if type(sessionfolder) in [list]:
