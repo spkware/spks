@@ -13,6 +13,37 @@ colors = ['#000000',
           '#bcbd22',
           '#17becf']
 
+def plot_drift_raster(spike_times,
+                      spike_depths,
+                      spike_amplitudes,
+                      n_spikes_to_plot = 100000,**kwargs):
+    '''
+    Plot a drift raster: scatter of spike times versus depths, the amplitude is the color
+    
+    Plots only a subset for speed purposes
+    Parameters
+    ----------
+    spike_times
+    spike_depths
+    spike_amplitudes
+    '''
+    idx = np.random.choice(
+        np.arange(len(spike_times)),
+        np.min([n_spikes_to_plot,len(spike_times)]),
+        replace=False)
+    idx = idx[np.argsort(np.take(spike_amplitudes,idx,axis=0))]
+    
+
+    plt.scatter(spike_times[idx],
+                spike_depths[idx], 0.03,
+                spike_amplitudes[idx],**kwargs)
+    # set the axis
+    plt.axis([0,
+              np.max(spike_times), # max time
+              np.min(spike_depths), # max channel
+              np.max(spike_depths)]);# min channel 
+
+             
 def plot_raster(spks, offset=0.0, height=1.0,colors='black',ax = None, mode = 'scatter', **kwargs):
     ''' Plot a raster from sets of spiketrains.
             - spks: is a list of spiketrains

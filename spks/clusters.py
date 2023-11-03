@@ -403,7 +403,14 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
             self.cluster_info['depth'] = self.cluster_position[:,1]
             self.cluster_info['electrode'] = self.cluster_channel
 
-
+    def plot_drift_map(self,**kwargs):
+        if self.spike_positions is None:
+            self.compute_template_amplitudes_and_depths() 
+        from .viz import plot_drift_raster
+        plot_drift_raster(self.spike_times/self.sampling_rate,
+                          self.spike_positions[:,1],
+                          self.spike_amplitudes,**kwargs)
+        
     def _load_required(self,file,var = None):
         '''
         Loads a required variable, if the file path does not exist returns an error, 
