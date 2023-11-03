@@ -91,6 +91,7 @@ class Clusters():
                 self.sampling_rate = float(self.metadata['sampling_rate'])
             if self.channel_gains is None:
                 self.channel_gains = self.metadata['channel_conversion_factor'].flatten()
+            self.channel_shank = self.metadata['channel_shank'].flatten()
 
         # load waveforms
         if get_waveforms:
@@ -388,7 +389,7 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
             idx = np.sort(np.random.choice(range(shpe),size=min(n_waveforms,shpe),replace=False))
             return self.cluster_waveforms[str(cluster_id)][idx]
 
-    def load_waveforms(self,parallel_pool_size = 8):
+    def load_waveforms(self,parallel_pool_size = 8,reload = False):
         '''Loads waveform saved in a cluster_waveforms.hdf file.'''
         if not self.folder is None:
             self.cluster_waveforms_mean = self._load_optional('cluster_mean_waveforms.npy',None) # the first is the mean
@@ -402,7 +403,7 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
                 if self.cluster_waveforms is None:
                     self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
                 try:
-                    if self.cluster_waveforms_mean is None: # if the average waveforms are not loaded, lets load
+                    if self.cluster_waveforms_mean is None or reload: # if the average waveforms are not loaded, lets load
                         with Pool(parallel_pool_size) as pool:
                             result = [r for r in tqdm(pool.imap(partial(_mean_std_from_cluster_waveforms,
                                                                         folder = self.folder),self.cluster_info.cluster_id.values),
@@ -420,14 +421,20 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
                     print('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder. Use the .extract_waveforms(rawdata) method.'.format(self.name))
 
         if not self.channel_gains is None and not self.cluster_waveforms_mean is None:
+            # scale the waveforms
             self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
             self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
         if not self.cluster_waveforms_mean is None:
             # compute the position of each cluster and the principal channel
             from .waveforms import waveforms_position
-            self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean, self.channel_positions)
+            self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean,
+                                                                             self.channel_positions)
             self.cluster_info['depth'] = self.cluster_position[:,1]
             self.cluster_info['electrode'] = self.cluster_channel
+            if hasattr(self,'channel_shank'):
+                self.cluster_info['shank'] = np.array([
+                    self.metadata['channel_shank'][self.channel_map.flatten() == c]
+                    for c in self.cluster_channel.flatten()])
 
     def plot_drift_map(self,**kwargs):
         if self.spike_positions is None:
