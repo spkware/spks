@@ -249,7 +249,11 @@ class Clusters():
         if self.spike_amplitudes is None:
             # try to get them..
             self.compute_template_amplitudes_and_depths()
-            
+        # clean-up cluster info
+        
+        self.cluster_info = pd.DataFrame(
+            dict(cluster_id = self.cluster_info['cluster_id'].values))
+        self.load_waveforms() # loads electrode depth and so to cluster_info
         for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
             desc = '[{0}] Computing unit metrics'.format(self.name)):
             sp = (ts/self.sampling_rate).astype(np.float32)
@@ -287,7 +291,7 @@ class Clusters():
         if not self.cluster_info is None and not self.cluster_waveforms_mean is None: # save if the folder exists to make it faster to load
             if self.folder.exists():
                 self.cluster_info.to_csv(self.folder/'cluster_info_metrics.tsv',sep = '\t',index = False)
-
+        return self.cluster_info
     def __len__(self):
         return len(self.cluster_info)
 
@@ -432,9 +436,10 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
             self.cluster_info['depth'] = self.cluster_position[:,1]
             self.cluster_info['electrode'] = self.cluster_channel
             if hasattr(self,'channel_shank'):
-                self.cluster_info['shank'] = np.array([
-                    self.metadata['channel_shank'][self.channel_map.flatten() == c]
-                    for c in self.cluster_channel.flatten()])
+                self.cluster_info['shank'] = [
+                    self.metadata['channel_shank'][
+                        self.channel_map.flatten() == c].flatten()[0]
+                    for c in self.cluster_channel.flatten()]
 
     def plot_drift_map(self,**kwargs):
         if self.spike_positions is None:
