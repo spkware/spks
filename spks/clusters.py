@@ -54,6 +54,12 @@ class Clusters():
         self.whitening_matrix = None
         self.template_pc_features = None
         self.spike_pc_features = None
+        self.templates_raw = None
+        self.templates_amplitude = None
+        self.templates_position = None
+        self.spike_amplitudes = None
+        self.spike_positions = None
+        
         if load_template_features is None:
             load_template_features = True
             #check if metrics file exists
@@ -239,7 +245,10 @@ class Clusters():
         self.max_sampled_time  = np.max(self.spike_times)
         t_min = self.min_sampled_time/self.sampling_rate
         t_max = self.max_sampled_time/self.sampling_rate
-        
+        if self.spike_amplitudes is None:
+            # try to get them..
+            self.compute_template_amplitudes_and_depths()
+            
         for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
             desc = '[{0}] Computing unit metrics'.format(self.name)):
             sp = (ts/self.sampling_rate).astype(np.float32)
@@ -259,7 +268,9 @@ class Clusters():
             from .waveforms import compute_waveform_metrics
             # computes the metrics and appends to cluster_info
             clumetrics = []
-            for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,self.cluster_waveforms_mean,self.cluster_channel),
+            for iclu,waveforms,cluster_channel in tqdm(zip(self.cluster_info.cluster_id.values,
+                                                           self.cluster_waveforms_mean,
+                                                           self.cluster_channel),
             desc = '[{0}] Computing waveform stats'.format(self.name)):
                 wave = waveforms[:,cluster_channel]
                 if npre is None:
@@ -330,12 +341,6 @@ class Clusters():
         if self.templates is None:
             # then try to load the templates
             self.load_template_features()
-            
-        self.templates_raw = None
-        self.templates_amplitude = None
-        self.templates_position = None
-        self.spike_amplitudes = None
-        self.spike_positions = None
 
         if (not self.templates is None and 
             not self.whitening_matrix is None and 

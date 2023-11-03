@@ -184,7 +184,7 @@ def estimate_active_channels(cluster_waveforms_mean,madthresh = 12):
     for p in peak_amp:
             activeidx.append(np.where(p>mad_thresh*madthresh)[0])
 
-    nactive_channels = np.array([len(a) for a in activeidx])
+    nactive_channels = np.array([len(a) for a in activeidx]).astype(np.uint32)
     return activeidx
 
 
