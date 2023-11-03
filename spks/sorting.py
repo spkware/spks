@@ -20,7 +20,7 @@ def get_sorting_folder_path(filename,
         if filename.is_file():
                 foldername  = filename.parent
         # get the probename from a filename
-        probename = re.search('\s*imec(\d)\s*',str(filename))
+        probename = re.search('\s*imec(\d).\s*',str(filename))
         if not probename is None:
                 sorting_folder_dictionary['probename'] = probename.group()
 
@@ -32,10 +32,13 @@ def get_sorting_folder_path(filename,
                         foldername = foldername.joinpath(f.format(**sorting_folder_dictionary))
         return foldername
 
-def move_sorting_results(scratch_folder, original_session_path,
-                         sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
-                         sorting_folder_dictionary = dict(sortname = 'sorting',
-                                                          probename = 'probe0')):
+def move_sorting_results(
+                scratch_folder,
+                original_session_path,
+                sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                sorting_folder_dictionary = dict(
+                        sortname = 'sorting',
+                        probename = 'probe0')):
         '''
         Move spike sorting results to a standardized folder
 
