@@ -1,5 +1,4 @@
 from .utils import *
-from .spikeglx_utils import load_spikeglx_binary,load_spikeglx_mtsdecomp
 import tqdm as tqdm
 from pathlib import Path
 
@@ -186,6 +185,7 @@ def binary_read_single_channel(bin_file_path,channel_idx,chunksize = 30000*10):
 
 def concatenate_binary_files(files,output_file, fix_metadata = True):
     '''Written by Joao Couto, pnc_spks repo'''
+    from .spikeglx_utils import load_spikeglx_binary
     dat = []
     metadata = []
     files = natsorted(files)
@@ -216,7 +216,8 @@ def concatenate_binary_files(files,output_file, fix_metadata = True):
     if fix_metadata:
         _fix_metadata(output_file, files)
         
-def _fix_metadata(output_file, files): # for binary concatenation 
+def _fix_metadata(output_file, files): # for binary concatenation
+    from .spikeglx_utils import load_spikeglx_binary
     metadata = []
     files = natsorted(files)
     for f in files:
