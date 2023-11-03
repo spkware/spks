@@ -500,10 +500,10 @@ def estimate_spike_positions_from_features(spike_templates,spike_pc_features,tem
     '''
     # channel index for each feature
     feature_channel_idx = torch.index_select(numpy_to_tensor(template_pc_features_ind),dim=0,
-                                            index = numpy_to_tensor(spike_templates))
+                                             index = numpy_to_tensor(spike_templates).flatten())
     # 2d coordinates for each channel feature
     feature_coords = torch.index_select(numpy_to_tensor(channel_positions),dim=0,
-                                  index=feature_channel_idx.reshape(-1)).reshape([*feature_channel_idx.shape,*channel_positions.shape[1:]])
+                                        index=feature_channel_idx.flatten()).reshape([*feature_channel_idx.shape,*channel_positions.shape[1:]])
     # ycoords of those channels?
     pc_features = numpy_to_tensor(spike_pc_features[:,consider_feature].squeeze())**2 # take the first pc for the features
     spike_locations = (torch.sum(feature_coords.permute((2,0,1))*pc_features,dim=2)/torch.sum(pc_features,dim=1)).t()
