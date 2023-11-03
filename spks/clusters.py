@@ -181,8 +181,9 @@ class Clusters():
         if not filter_par is None:
             del p_bar
         if not save_folder_path is None:
+            print(save_folder_path)
             if Path(save_folder_path).exists():
-                print('[{0}] Saving waveforms to {1}'.format(save_folder_path))
+                print('Saving waveforms to {}'.format(save_folder_path))
                 save_dict_to_h5(save_folder_path/'cluster_waveforms.hdf',waveforms)
             else:
                 print(f'Folder not found {savefolder}')
