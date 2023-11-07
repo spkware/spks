@@ -271,6 +271,19 @@ class Clusters():
         self.cluster_info = pd.merge(self.cluster_info,pd.DataFrame(unitmetrics))
 
         if not self.cluster_waveforms_mean is None:  # compute only if there are mean waveforms
+            # compute the position of each cluster and the principal channel
+            from .waveforms import waveforms_position
+            self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean,
+                                                                             self.channel_positions)
+            return
+            self.cluster_info['depth'] = self.cluster_position[:,1]
+            self.cluster_info['electrode'] = self.cluster_channel
+            if hasattr(self,'channel_shank'):
+                self.cluster_info['shank'] = [
+                    self.metadata['channel_shank'][
+                        self.channel_map.flatten() == c].flatten()[0]
+                    for c in self.cluster_channel.flatten()]
+
             from .waveforms import compute_waveform_metrics
             # computes the metrics and appends to cluster_info
             clumetrics = []
@@ -403,7 +416,9 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
                 # because we saved the std in the second element
                 self.cluster_waveforms_mean = self.cluster_waveforms_mean[0]
                 self.cluster_waveforms_std = self.cluster_waveforms_std[1]
-
+            if self.cluster_waveforms_mean.shape[0] != len(self.cluster_info):
+                # then we need to re-compute the mean waveforms 
+                reload = True
             if (self.folder/'cluster_waveforms.hdf').exists():
                 if self.cluster_waveforms is None:
                     self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
@@ -420,8 +435,9 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
                             np.save(self.folder/'cluster_mean_waveforms.npy',
                                     np.stack([self.cluster_waveforms_mean,
                                               self.cluster_waveforms_std]).astype(np.int16)) # the type here should be read from the data
-                except:
+                except Exception as err:
                     del self.cluster_waveforms # close the file if it crashed.
+                    print(err)
                 if not hasattr(self,'cluster_waveforms'):
                     print('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder. Use the .extract_waveforms(rawdata) method.'.format(self.name))
 
@@ -429,18 +445,6 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
             # scale the waveforms
             self.cluster_waveforms_mean = self.cluster_waveforms_mean*self.channel_gains
             self.cluster_waveforms_std = self.cluster_waveforms_std*self.channel_gains
-        if not self.cluster_waveforms_mean is None:
-            # compute the position of each cluster and the principal channel
-            from .waveforms import waveforms_position
-            self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean,
-                                                                             self.channel_positions)
-            self.cluster_info['depth'] = self.cluster_position[:,1]
-            self.cluster_info['electrode'] = self.cluster_channel
-            if hasattr(self,'channel_shank'):
-                self.cluster_info['shank'] = [
-                    self.metadata['channel_shank'][
-                        self.channel_map.flatten() == c].flatten()[0]
-                    for c in self.cluster_channel.flatten()]
 
     def plot_drift_map(self,**kwargs):
         if self.spike_positions is None:
