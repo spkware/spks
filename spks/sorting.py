@@ -146,6 +146,10 @@ def ks25_run(sessionfiles = [],
                             useRam = 0,
                             doCorrection = int(motion_correction),
                             nt0 = 61.))
+        if not motion_correction:
+                print('Motion Correction is disabled.')
+        else:
+                print('Motion Correction is enabled.')
         nchannels = metadata['nchannels']
         coords = np.stack(metadata['channel_coords'])
         # make the channelmap file

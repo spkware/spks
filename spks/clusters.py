@@ -416,9 +416,9 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
                 # because we saved the std in the second element
                 self.cluster_waveforms_mean = self.cluster_waveforms_mean[0]
                 self.cluster_waveforms_std = self.cluster_waveforms_std[1]
-            if self.cluster_waveforms_mean.shape[0] != len(self.cluster_info):
-                # then we need to re-compute the mean waveforms 
-                reload = True
+                if self.cluster_waveforms_mean.shape[0] != len(self.cluster_info):
+                    # then we need to re-compute the mean waveforms 
+                    reload = True
             if (self.folder/'cluster_waveforms.hdf').exists():
                 if self.cluster_waveforms is None:
                     self.cluster_waveforms = h5.File((self.folder/'cluster_waveforms.hdf'),'r')
