@@ -68,9 +68,9 @@ def get_si_docker_sorter(sorter = 'kilosort2_5-compiled-base'):
 
 class SpikeSorting(object):
         def __init__(raw_files, output_folder,
-                     preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,5000),
+                     preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
                                       lambda x: global_car_gpu(x,return_gpu=False)],
-                     temporary_folder = None, **kwargs):
+                     temporary_folder = None, motion_correction = True, **kwargs):
                 ''' Run a spike sorter. 
         1) Creates the output folder.
         2) Concatenates the input files.
@@ -90,12 +90,17 @@ def ks25_run(sessionfiles = [],
              sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
              sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
              do_post_processing = False, device = 'cuda',gpu_index = 0,
-             use_precompiled = False):
+             use_precompiled = False,
+             motion_correction = True,
+             preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
+                              lambda x: global_car_gpu(x,return_gpu=False)]):
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
                 using_scratch = True
-        tt = RawRecording(sessionfiles,device = device)
+        tt = RawRecording(sessionfiles,device = device,
+                          preprocessing = preprocessing,
+                          return_preprocessed = True)
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin').format(
                 **sorting_folder_dictionary)
         output_folder = os.path.dirname(binaryfilepath)
@@ -139,7 +144,7 @@ def ks25_run(sessionfiles = [],
                             scaleproc = 200.,
                             nPCs = 3,
                             useRam = 0,
-                            doCorrection = 1,
+                            doCorrection = int(motion_correction),
                             nt0 = 61.))
         nchannels = metadata['nchannels']
         coords = np.stack(metadata['channel_coords'])
@@ -270,6 +275,7 @@ def ks25_sort_multiprobe_sessions(sessions,
                                   device = 'cuda',
                                   gpu_index = 0,
                                   use_precompiled = False,
+                                  motion_correction = True,
                                   use_docker = False):
         '''
         Sort multiprobe neuropixels recordings (will concatenate multiple sessions if a list is passed).
@@ -289,6 +295,7 @@ def ks25_sort_multiprobe_sessions(sessions,
                                           sorting_results_path_rules = sorting_results_path_rules,
                                           sorting_folder_dictionary = sorting_folder_dictionary,
                                           do_post_processing = False,
+                                          motion_correction = motion_correction,
                                           use_docker = use_docker,
                                           use_precompiled = use_precompiled,
                                           device=device, gpu_index = gpu_index)
