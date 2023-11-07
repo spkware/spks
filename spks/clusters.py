@@ -275,7 +275,6 @@ class Clusters():
             from .waveforms import waveforms_position
             self.cluster_position, self.cluster_channel = waveforms_position(self.cluster_waveforms_mean,
                                                                              self.channel_positions)
-            return
             self.cluster_info['depth'] = self.cluster_position[:,1]
             self.cluster_info['electrode'] = self.cluster_channel
             if hasattr(self,'channel_shank'):
