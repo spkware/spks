@@ -59,6 +59,10 @@ class Clusters():
         self.templates_position = None
         self.spike_amplitudes = None
         self.spike_positions = None
+        self.cluster_waveforms_mean = None
+        self.cluster_waveforms_std = None        
+        self.cluster_waveforms = None
+        self.sampling_rate = sampling_rate
         
         if load_template_features is None:
             load_template_features = True
@@ -77,10 +81,6 @@ class Clusters():
 
         self.cluster_groups = self._load_optional('cluster_group.tsv')
         
-        self.cluster_waveforms_mean = None
-        self.cluster_waveforms_std = None        
-        self.cluster_waveforms = None
-        self.sampling_rate = sampling_rate
 
         # is there a sorting metadata file on this folder?
         metadatafile = list(Path(self.folder).glob('filtered_recording*metadata.hdf'))

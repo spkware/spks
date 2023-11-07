@@ -153,7 +153,7 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
             spike_duration = np.nan
     else:
         # there is no peak
-        peaktime = np.nan
+        peak_time = np.nan
         peak_amp = np.nan
         spike_duration = np.nan
     wavemetrics = dict(trough_time = trough_time,
@@ -168,7 +168,7 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     return wavemetrics
 
 
-def estimate_active_channels(cluster_waveforms_mean,madthresh = 12):
+def estimate_active_channels(cluster_waveforms_mean,madthresh = 15):
     '''
     TODO
     '''
