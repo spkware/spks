@@ -23,6 +23,8 @@ def get_sorting_folder_path(filename,
         probename = re.search('\s*imec(\d).\s*',str(filename))
         if not probename is None:
                 probename = probename.group().strip('.')
+                print(probename)
+                sorting_folder_dictionary['probename'] = probename
 
         sorting_results_path = foldername #FIXME: not defined if filename isn't file
         for f in sorting_results_path_rules:
