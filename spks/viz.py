@@ -43,33 +43,6 @@ def plot_drift_raster(spike_times,
               np.min(spike_depths), # max channel
               np.max(spike_depths)]);# min channel 
 
-             
-def plot_raster(spks, offset=0.0, height=1.0,colors='black',ax = None, mode = 'scatter', **kwargs):
-    ''' Plot a raster from sets of spiketrains.
-            - spks: is a list of spiketrains
-            - mode: can be scatter (default) or line. Lines creates a line of height defined by 'height'
-        Line mode can be used for exporting to pdf and editing more intuitively
-            - height
-            - "colors" can be an list of colors (per trial - in line mode)
-        Joao Couto - January 2016
-    '''
-    if ax is None:
-        ax = plt.gca()
-    nspks = len(spks)
-    if type(colors) is str:
-        colors = [colors]*nspks
-    if mode == 'line': # for exporting to pdf and editing
-        for i,(sp,cc) in enumerate(zip(spks,colors)):
-            ax.vlines(sp,offset+(i*height),
-                    offset+((i+1)*height),
-                    colors=cc,**kwargs)
-    else: # scatter
-        a = np.hstack([i*np.ones_like(s) + offset for i,s in enumerate(spks)])
-        b = np.hstack(spks)
-        ax.scatter(b,a,marker = '|', lw = lw)
-        ax.autoscale(tight = True)
-    
-
 def plot_event_aligned_raster(event_times, spike_times, sorting='', pre_seconds=1, post_seconds=2, offset=0, ax=None, color='black', **kwargs):
     """Plot rasters from multiple trials aligned to event_times
 
