@@ -1,3 +1,5 @@
+from .utils import *
+
 def get_triggered_unit_spikes(ts,events,tpre = 1,tpost = 1):
     trig = []
     for e in events:
@@ -13,7 +15,12 @@ def get_triggered_spikes(units,events,tpre,tpost,ncpus = 14):
     return result
 
 from .viz import plt
-def plot_raster(spks, offset=0.0, height=1.0, colors='k', ax = None, mode = 'scatter',lw = 0.5,markersize = 2, **kwargs):
+def plot_raster(spks, offset=0.0, height=1.0,
+                colors='k',
+                ax = None,
+                mode = 'scatter',
+                lw = 0.5,
+                markersize = 2, **kwargs):
     ''' Plot a raster from sets of spiketrains.
             - spks: is a list of spiketrains
             - mode: can be scatter (default) or line. Lines creates a line of height defined by 'height'
@@ -22,6 +29,7 @@ def plot_raster(spks, offset=0.0, height=1.0, colors='k', ax = None, mode = 'sca
             - "colors" can be an list of colors (per trial - in line mode)
         Joao Couto - January 2016
     '''
+    import pylab as plt
     if ax is None:
         ax = plt.gca()
     nspks = len(spks)
@@ -38,7 +46,7 @@ def plot_raster(spks, offset=0.0, height=1.0, colors='k', ax = None, mode = 'sca
         if len(colors) == len(spks):
             colors = np.hstack([[colors[i]]*len(s) for i,s in enumerate(spks)]) # to color each trial differently
         s = np.ones_like(b)*markersize
-        ax.scatter(b,a,s,c = colors, marker = '|', lw = lw,**kwargs)
+        ax.scatter(b,a,s,c = colors, marker = '|', lw = lw, **kwargs)
         ax.autoscale(tight = True)
 
 def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):

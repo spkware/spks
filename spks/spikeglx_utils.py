@@ -6,7 +6,7 @@ def read_imro(imro):
     imro_table = []
     for ln in imro[1:]:
         imro_table.append([int(i) for i in ln.split(' ')])
-    if probe_type in [24]: # NP2 4 shank
+    if probe_type in [24,2013]: # NP2 4 shank
         keys = ['channel_id', 'shank_id',
                 'bank_id', 'reference_id', 'electrode_id']
     elif probe_type in [21]: # NP2 1 shank
