@@ -6,6 +6,14 @@
 from .utils import *
 from .raw import *
 
+def get_probename(filename):
+        # get the probe name from a file (only works with spikeglx?)
+        probename = re.search('\s*imec(\d).\s*',str(filename))
+        if not probename is None:
+                return str(probename.group()).strip('/')
+        else:
+                return 'probe0'
+        
 def get_sorting_folder_path(filename,
                             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                             sorting_folder_dictionary = dict(sortname = 'sorting',
@@ -19,10 +27,8 @@ def get_sorting_folder_path(filename,
         filename = Path(filename)
         if filename.is_file():
                 foldername  = filename.parent
-        # get the probename from a filename
-        probename = re.search('\s*imec(\d).\s*',str(filename))
-        if not probename is None:
-                sorting_folder_dictionary['probename'] = probename.group()
+
+        sorting_folder_dictionary['probename'] = get_probename(filename)
 
         sorting_results_path = foldername
         for f in sorting_results_path_rules:
@@ -104,9 +110,10 @@ def ks25_run(sessionfiles = [],
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin').format(
                 **sorting_folder_dictionary)
         output_folder = os.path.dirname(binaryfilepath)
-
+        
         if not os.path.exists(output_folder):
                 os.makedirs(output_folder)
+        print(f'Exporting binary to {binaryfilepath}')
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            channels = tt.channel_info.channel_idx.values)
         free_gpu()
@@ -294,6 +301,8 @@ def ks25_sort_multiprobe_sessions(sessions,
         results = []
         for probepath in all_probe_dirs:
                 print('Running KILOSORT 2.5 on sessions {0}'.format(' ,'.join(probepath)))
+                sorting_folder_dictionary['probename'] = get_probename(probepath)
+                
                 results_folder = ks25_run(sessionfiles = probepath,
                                           temporary_folder = temporary_folder,
                                           sorting_results_path_rules = sorting_results_path_rules,
