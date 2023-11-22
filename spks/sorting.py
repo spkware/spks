@@ -10,7 +10,7 @@ def get_probename(filename):
         # get the probe name from a file (only works with spikeglx?)
         probename = re.search('\s*imec(\d).\s*',str(filename))
         if not probename is None:
-                return str(probename.group()).strip('/')
+                return str(probename.group()).strip('/').strip('.')
         else:
                 return 'probe0'
         
