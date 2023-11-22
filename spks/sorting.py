@@ -8,7 +8,7 @@ from .raw import *
 
 def get_probename(filename):
         # get the probe name from a file (only works with spikeglx?)
-        probename = re.search('\s*imec(\d).\s*',str(filename))
+        probename = re.search('\s*imec[0-9]*[a-z]?\s*',str(filename))
         if not probename is None:
                 return str(probename.group()).strip('/').strip('.')
         else:
