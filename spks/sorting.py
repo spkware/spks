@@ -74,8 +74,13 @@ def get_si_docker_sorter(sorter = 'kilosort2_5-compiled-base'):
 
 class SpikeSorting(object):
         def __init__(raw_files, output_folder,
-                     preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
-                                      lambda x: global_car_gpu(x,return_gpu=False)],
+                     filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
+                                                 sampling_rate = 30000,
+                                                 lowpass = 300,
+                                                 highpass = 10000,
+                                                 return_gpu = False),
+                                            dict(function = 'global_car_gpu',
+                                                 return_gpu = True)],
                      temporary_folder = None, motion_correction = True, **kwargs):
                 ''' Run a spike sorter. 
         1) Creates the output folder.
@@ -98,14 +103,19 @@ def ks25_run(sessionfiles = [],
              do_post_processing = False, device = 'cuda',gpu_index = 0,
              use_precompiled = False,
              motion_correction = True,
-             preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
-                              lambda x: global_car_gpu(x,return_gpu=False)]):
+             filter_pipeline_par =  [dict(function = 'bandpass_filter_gpu',
+                                          sampling_rate = 30000,
+                                          lowpass = 300,
+                                          highpass = 10000,
+                                          return_gpu = False),
+                                     dict(function = 'global_car_gpu',
+                                          return_gpu = True)]):
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
                 using_scratch = True
         tt = RawRecording(sessionfiles,device = device,
-                          preprocessing = preprocessing,
+                          filter_pipeline_par = filter_pipeline_par,
                           return_preprocessed = True)
         binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin').format(
                 **sorting_folder_dictionary)
@@ -115,8 +125,8 @@ def ks25_run(sessionfiles = [],
                 os.makedirs(output_folder)
         print(f'Exporting binary to {binaryfilepath}')
         binaryfile,metadata = tt.to_binary(binaryfilepath,
+                                           filter_pipeline_par = filter_pipeline_par,
                                            channels = tt.channel_info.channel_idx.values)
-        free_gpu()
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
         # kilosort options TODO: expose the options

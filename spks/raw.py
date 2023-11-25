@@ -335,7 +335,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
                 onsets,offsets = unpackbits_gpu(sync[o:f-1],device = self.device)
                 metadata[f'file{ifile}_sync_onsets'] = onsets
                 metadata[f'file{ifile}_sync_offsets'] = offsets
-            
+            free_gpu()            
         if get_channels_mad: # median absolute deviation of the first 30 seconds
             mad_int16 = [m for m in mad(out[:30000*30,:])]
             metadata['channel_mad_int16'] = mad_int16
