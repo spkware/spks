@@ -263,9 +263,17 @@ def binary_spikes(spks,edges,kernel = None):
 from scipy.interpolate import interp2d
 from scipy.signal import ellip, filtfilt,butter
 
-def bandpass_filter(X,srate,band=[3,300]):
-    b, a = ellip(4, 0.1, 40, np.array(band)/(srate/2.),btype='bandpass')
-    return filtfilt(b, a, X,axis = 0)#, method="gust"
+def bandpass_filter(X, sampling_rate, lowpass = 300, highpass = 12000, order=3, method = 'butter'):
+    # see also bandpass_filter_gpu in .raw 
+    if method == 'ellip':
+        b, a = ellip(order, 0.1, 40, 
+                     np.array([lowpass,highpass])/(sampling_rate/2.),
+                     btype='bandpass')
+    elif method == 'butter':
+        b, a = butter(order, 
+                     np.array([lowpass,highpass])/(sampling_rate/2.),
+                     btype='bandpass')
+    return filtfilt(b, a, X,axis = 0)
 
 def current_source_density(lfp,chmap, chanspacing=60, interpolate=False):
     # Interpolate so that we get even sampling

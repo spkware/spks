@@ -69,16 +69,44 @@ def bandpass_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device
     return filtfilt_chunk(data, a , b, device = device, return_gpu = return_gpu)
 
 
+default_filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
+                                    sampling_rate = 30000,
+                                    lowpass = 300,
+                                    highpass = 10000,
+                                    return_gpu = False),
+                               dict(function = 'global_car_gpu',
+                                    return_gpu = True)]
+
+def parse_filter_pipeline(filterlist):
+    '''
+    Filter parameters are a list of dictionaries. 
+    Parameters:
+        filterlist: list
+            Each dictionary has a "function" key that specifies which function to use. 
+    
+    Returns: 
+        filters: list
+            List of functions that take the data as input and can be applied sequentially.
+            
+    '''
+    from spks.raw import bandpass_filter_gpu, global_car_gpu # import filters from here
+    functions = []
+    for f in filterlist:
+        func = f['function']
+        par = f.copy()
+        del par['function']
+        functions.append(partial(eval(func),**par))
+    return functions
+
 class RawRecording(object): 
     def __init__(self,files, 
-                 preprocessing = [lambda x: bandpass_filter_gpu(x,30000,300,10000),
-                                 lambda x: global_car_gpu(x,return_gpu=False)],
+                 filter_pipeline_par = default_filter_pipeline_par,
                  return_preprocessed = True,
                  device = None,  #TODO: make that the functions can make use of this. Right now it always uses the cuda if available..
                  return_voltage = False, **kwargs):
         '''
         Pretend that the recordings are concatenated.
-        There is a limit to the chunk size because of how processing is done.
+        There is a limit to the chunk size because of how processing is done (gpu).
         '''
         # load the files, can be compressed bin or bin
         # get the recording duration by iterating through the files
@@ -90,11 +118,25 @@ class RawRecording(object):
         self.metadata = []
         self.conversion_factor = 1.
         self.dtype = np.int16
-        self.preprocessing = preprocessing
         self.return_preprocessed = return_preprocessed
         self.return_voltage = return_voltage
         self._init_parameters()
+        self._parse_filter_pipeline_par(filter_pipeline_par)
+        
+    def _parse_filter_pipeline_par(self,filter_pipeline_par):
+        ''' 
+Gets the sampling rate into all filters that need it and initializes filter functions
+        '''
+        self.filter_pipeline = []
+        self.filter_pipeline_par = filter_pipeline_par
 
+        for i,f in enumerate(self.filter_pipeline_par):
+            for k in f.keys():
+                if k == ['sampling_rate']:
+                    self.filter_pipeline_par[i][k] = self.sampling_rate
+                    
+        self.filter_pipeline = parse_filter_pipeline(self.filter_pipeline_par)
+        
     def __len__(self):
         return self.shape[0]
 
@@ -138,7 +180,7 @@ class RawRecording(object):
             tmp = self.buffers[ifile][fileidx][:,rows]
             if len(tmp):
                 if return_preprocessed:
-                    for func in self.preprocessing:
+                    for func in self.filter_pipeline:
                         tmp = func(tmp)
                 buffer[buffidx,:] = tmp
         if return_voltage:
@@ -205,8 +247,16 @@ class RawRecording(object):
         return sync_onsets,sync_offsets
 
     def to_binary(self, filename, channels = None, processed = True, 
-                  chunksize = 30000*5, process_sync = True, sync_channel = -1, 
-                  get_channels_mad = True):
+                  chunksize = 30000*5, sync_channel = -1, 
+                  get_channels_mad = True,
+                  n_jobs = None,
+                  filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
+                                              sampling_rate = 30000,
+                                              lowpass = 300,
+                                              highpass = 10000,
+                                              return_gpu = False),
+                                         dict(function = 'global_car_gpu',
+                                              return_gpu = True)]):
         # create a binary file
         '''
         Exports to binary file and a channelmap.
@@ -217,38 +267,45 @@ class RawRecording(object):
         chunks = chunk_indices(self,chunksize = chunksize)
         if not os.path.isdir(os.path.dirname(filename)):
             os.makedirs(os.path.dirname(filename))
+            
         if channels is None:
-            channels = np.arange(self.shape[1])
-        # out = np.memmap(filename,
-        #                 dtype = self.dtype,
-        #                 mode = 'w+',
-        #                 shape=(self.shape[0],len(channels)))
-        old_return_preprocessed = self.return_preprocessed
-        
-        self.return_preprocessed = False
-        from tqdm import tqdm
-        sync = []
-        with open(filename,'wb') as fd:
-            for c in tqdm(chunks, desc='Exporting binary'):
-                buf = self[c[0]:c[1],:]
-                if process_sync:    # extract the sync before preprocessing
-                    sync.append(buf[:,sync_channel])
-                
-                if not channels is None: # select channels
-                    buf = buf[:,channels]
-                if processed:  # process only for the selected channels
-                    for func in self.preprocessing:
-                        buf = func(buf)
-                fd.write(np.ascontiguousarray(buf))
-            # out[c[0]:c[1],:] = buf[:]
-        self.return_preprocessed = old_return_preprocessed
-        if channels is None:
-            channels = np.arange(self.shape[1],dtype=int)
+            channels = np.arange(self.shape[1], dtype = int)
+            
+        out = np.memmap(filename,
+                        dtype = self.dtype,
+                        mode = 'w+',
+                        shape=(self.shape[0],len(channels)))
+        from joblib import Parallel,delayed
+        from tqdm import tqdm        
+        # get the number of jobs depending on the available cuda size
+        if n_jobs is None:
+            if torch.cuda.is_available():
+                n_jobs = int(np.ceil(torch.cuda.mem_get_info()[0]/(chunksize*2*8*1000)))
+            else:
+                n_jobs = 2
+
+        with Parallel(n_jobs = n_jobs) as pool:
+            # Run a parallel pool that writes the binary
+            sync = pool(delayed(_write_chunk_from_files)(
+                self.files, chunk,out,
+                channels = channels,
+                sync_channel = sync_channel,
+                filter_pipeline_par = filter_pipeline_par)
+                        for chunk in tqdm(chunks,
+                                          desc = 'Exporting binary'))
+            # free all gpu jobs
+            pool(delayed(lambda x:free_gpu())(i) for i in range(n_jobs))
+        # close all pools in case they are still running
+        out.flush()
+        from joblib.externals.loky import get_reusable_executor
+        get_reusable_executor().shutdown(wait=True)    
+
+        # save data
         nchannels = len(channels)
         channel_positions = []
         conversion_f = []
         channel_shank = []
-        channels = self.channel_info.channel_idx.values
+        channels = self.channel_info.channel_idx.values.flatten()
         for c in [c for c in channels]:
             gain = self.channel_info.conversion_factor[self.channel_info.channel_idx == c].values
             coord = self.channel_info.channel_coord[self.channel_info.channel_idx == c].values
@@ -265,24 +322,49 @@ class RawRecording(object):
                         original_channels = [c for c in channels],
                         nchannels = nchannels,
                         channel_idx = [c for c in np.arange(nchannels,dtype=int)],
-                        channel_coords = channel_positions,
-                        channel_conversion_factor = conversion_f,
-                        channel_shank = channel_shank,
+                        channel_coords = np.stack(channel_positions).squeeze(),
+                        channel_conversion_factor = np.stack(conversion_f).flatten(),
+                        channel_shank = np.stack(channel_shank).flatten(),
                         file_offsets = self.file_sample_offsets,
-                        filenames = [os.path.basename(f) for f in self.files]) 
-        if len(sync):
+                        filenames = [os.path.basename(f) for f in self.files])
+        # sync data
+        if not sync_channel is None:
             sync = np.hstack(sync)
-            for ifile,(o,f) in enumerate(self.file_sample_offsets):
+            for ifile,(o,f) in tqdm(enumerate(self.file_sample_offsets),
+                                    desc = 'Unpacking sync channel'):
                 onsets,offsets = unpackbits_gpu(sync[o:f-1],device = self.device)
                 metadata[f'file{ifile}_sync_onsets'] = onsets
                 metadata[f'file{ifile}_sync_offsets'] = offsets
             
-        from .io import map_binary
-        bin_data = map_binary(filename,metadata['nchannels'])
         if get_channels_mad: # median absolute deviation of the first 30 seconds
-            mad_int16 = [m for m in mad(bin_data[:30000*30,:])]
+            mad_int16 = [m for m in mad(out[:30000*30,:])]
             metadata['channel_mad_int16'] = mad_int16
-        # out.flush()
         # del out
         save_dict_to_h5(filename.replace('.bin','.metadata.hdf'), metadata)
-        return bin_data, metadata
+        return out, metadata
+
+
+
+def _write_chunk_from_files(files, chunk, outputmmap,
+                            channels = None, 
+                            filter_pipeline_par = None,
+                            sync_channel = -1):
+    '''
+    Support function for writing chunks a memory mapped file.
+    Example usage with joblib:
+    
+
+    '''
+    dat = RawRecording(files,return_preprocessed=False)
+    filter_pipeline = parse_filter_pipeline(filter_pipeline_par)
+    buf = dat[chunk[0]:chunk[1]]
+    if not sync_channel is None:
+        sync_channel = buf[:,sync_channel]
+    if not channels is None: # select channels
+        buf = buf[:,channels]
+    # process only for the selected channels
+    for func in filter_pipeline:
+        buf = func(buf)
+    outputmmap[chunk[0]:chunk[1],:] = buf[:]
+    del dat
+    return sync_channel        

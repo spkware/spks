@@ -16,10 +16,11 @@ We tipically install ``spks`` in environments with other packages so kept depend
    - ``scipy``      - interpolation and other
    - ``matplotlib`` - plotting
    - ``torch``      - speed up some tasks
-   - ``pandas``      - make tables and save files
+   - ``pandas``     - make tables and save files
    - ``h5py``       - save dictionaries 
    - ``natsort``    - sort files
    - ``tqdm``       - progress bars
+   - ``joblib``     - multiprocess pools
 
 #### Instalation for the brave:
 
@@ -33,7 +34,7 @@ Recommended to avoid interfering with other packages or for users new to python.
 
 1) install the [anaconda](https://www.anaconda.com/download) python distribution
 2) create a new environment from a terminal ``conda create -n spks`` and activate it ``conda activate spks``
-3) install ``torch`` in the environment ``conda install pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 pandas h5py natsort tqdm scipy jupyter matplotlib -c pytorch -c nvidia`` you can use other versions of [pytorch](https://pytorch.org/get-started/previous-versions) depending on which graphics driver is installed. A gpu is not required.
+3) install ``torch`` in the environment ``conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia`` and then install the dependencies ``conda install pandas h5py natsort tqdm scipy joblib jupyter matplotlib`` you can use other versions of [pytorch](https://pytorch.org/get-started/previous-versions) depending on which graphics driver is installed. A gpu is not required.
 4) install ``spks`` using pip ``pip install git+https://github.com/spkware/spks.git@main``
 
 
