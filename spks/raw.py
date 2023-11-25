@@ -247,7 +247,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
         return sync_onsets,sync_offsets
 
     def to_binary(self, filename, channels = None, processed = True, 
-                  chunksize = 30000*5, sync_channel = -1, 
+                  chunksize = 30000*2, sync_channel = -1, 
                   get_channels_mad = True,
                   n_jobs = None,
                   filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
