@@ -60,6 +60,8 @@ def move_sorting_results(
         if not sorting_results_path.exists():
                 sorting_results_path.mkdir(parents=True, exist_ok=True)
         for f in tqdm(files_to_copy,desc = 'Moving files'):
+                if os.path.exists(sorting_results_path/f.name):
+                        os.remove(sorting_results_path/f.name) #need to delete files before moving to avoid weird permission error
                 shutil.move(f,sorting_results_path/f.name)
 
         return sorting_results_path
