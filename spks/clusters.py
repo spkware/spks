@@ -254,7 +254,7 @@ class Clusters():
         
         self.cluster_info = pd.DataFrame(
             dict(cluster_id = self.cluster_info['cluster_id'].values))
-        self.load_waveforms() # loads electrode depth and so to cluster_info
+        self.load_waveforms(reload=recompute) # loads electrode depth and so to cluster_info
         for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
             desc = '[{0}] Computing unit metrics'.format(self.name)):
             sp = (ts/self.sampling_rate).astype(np.float32)
@@ -435,10 +435,11 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
                                     np.stack([self.cluster_waveforms_mean,
                                               self.cluster_waveforms_std]).astype(np.int16)) # the type here should be read from the data
                 except Exception as err:
-                    del self.cluster_waveforms # close the file if it crashed.
                     print(err)
-                if not hasattr(self,'cluster_waveforms'):
-                    print('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder. Use the .extract_waveforms(rawdata) method.'.format(self.name))
+                    del self.cluster_waveforms # close the file if it crashed.
+        
+        if not hasattr(self,'cluster_waveforms') or self.cluster_waveforms is None:
+            print('[{0}] - Waveforms file [cluster_waveforms.hdf] not in folder. Use the .extract_waveforms(rawdata) method.'.format(self.name))
 
         if not self.channel_gains is None and not self.cluster_waveforms_mean is None:
             # scale the waveforms
