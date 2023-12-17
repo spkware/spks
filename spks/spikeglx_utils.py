@@ -1,6 +1,19 @@
 from .utils import *
 from .io import *
 
+def read_mux(mux_table):
+    ''' 
+    The channels are sampled with multiple ADC, there are multiple ADCs in the probe but not as many as channels. 
+
+    The ADCs can't sample all channels at the same time, and sample them sequentially.
+'''
+    
+    n_adc,n_channels_per_adc= [int(v) for v in mux_table[0].split(',')]
+    # these are the channels that are sampled together
+    adc_channel_groups = [[int(v) for v in group.split(' ')]
+                          for group in mux_table[1:]]
+    return n_adc,n_channels_per_adc,adc_channel_groups
+
 def read_imro(imro):
     probe_type,nchannels = [int(i) for i in imro[0].split(',')][:2]
     imro_table = []
@@ -81,6 +94,10 @@ def read_spikeglx_meta(metafile):
             # This is so it works with the ULTRA alphas..
             if len(meta['conversion_factor_microV']) != len(meta['channel_idx']):
                 meta['conversion_factor_microV'] = meta['conversion_factor_microV'][0]*np.ones_like(meta['channel_idx'])
+    if 'muxTbl' in meta.keys():
+        (meta['n_adc'],
+         meta['n_channels_per_adc'],
+         meta['adc_channel_groups']) = read_mux(meta['muxTbl'])
     #TODO deal with the NI gains
     #TODO deal with LF files.
     return meta

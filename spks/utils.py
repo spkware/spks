@@ -73,6 +73,15 @@ def numpy_to_tensor(X, device = 'cpu'):
         dtype = X.dtype
     return torch.from_numpy(X.astype(dtype)).to(device)
 
+def check_cuda(device):
+    if device is None:
+        device = 'cuda'
+    if device == 'cuda':
+        if not torch.cuda.is_available():
+            print('Torch does not have access to the GPU; setting device to "cpu"')
+            device = 'cpu'
+    return device
+
 
 def free_gpu():
     ''' free torch gpu memory '''
@@ -385,3 +394,14 @@ def runpar(f,X,nprocesses = None, silent = True,desc = None,**kwargs):
                           total = len(X),desc = desc):
                 res.append(r)
     return res
+
+
+def shifts_from_adc_channel_groups(adc_channel_groups):
+    
+    shifts = []
+    nsamples = len(adc_channel_groups) 
+    for i,group in enumerate(adc_channel_groups):
+        shifts.append(np.ones(len(group))*i/nsamples)
+    channel_ids,tshifts = np.hstack(adc_channel_groups),np.hstack(shifts)
+    isort = np.argsort(channel_ids)
+    return channel_ids[isort],tshifts[isort]
