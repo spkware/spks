@@ -11,11 +11,12 @@ class Clusters():
                  template_pc_features_ind = None,
                  channel_positions = None, 
                  channel_map = None,
-                 sampling_rate = None,
+                 sampling_rate= None,
                  channel_gains = None,
                  get_waveforms = True,
                  get_metrics = True,
                  name = 'Clusters',
+                 return_samples = True,
                  load_template_features = None): #if None it will load only if needed to compute metrics, otherwise set boolean
         '''
         Object to access the spike sorting results like an array
@@ -26,7 +27,7 @@ class Clusters():
             - (optional) spike_times
             - (optional) spike_clusters
             - (optional) channel_positions
-            - get_waveforms
+            - get_waveforms default True
 
         Joao Couto - spks 2023
         '''
@@ -38,7 +39,7 @@ class Clusters():
         self.spike_times = self._load_required('spike_times.npy',spike_times)
         # load each spike cluster number
         self.spike_clusters = self._load_required('spike_clusters.npy',spike_clusters)
-
+        
         self._set_auxiliary()  # set other variables that used to speed up things internally
 
         unique_clusters = np.sort(np.unique(self.spike_clusters)).astype(int)
@@ -62,6 +63,7 @@ class Clusters():
         self.cluster_waveforms_mean = None
         self.cluster_waveforms_std = None        
         self.cluster_waveforms = None
+        self.return_samples = return_samples
         self.sampling_rate = sampling_rate
         
         if load_template_features is None:
@@ -218,11 +220,17 @@ class Clusters():
             index = np.arange(*index.indices(len(self)))
         sp = []
         for iclu in self.cluster_info.cluster_id.values[index]:
-            sp.append(self.get_cluster(iclu))  
-        if len(sp) == 1:
-            return sp[0]
+            sp.append(self.get_cluster(iclu))
+        if self.return_samples:
+            if len(sp) == 1:
+                return sp[0]
+            else:
+                return sp
         else:
-            return sp
+            if len(sp) == 1:
+                return sp[0].astype(np.float32)/self.sampling_rate
+            else:
+                return [s.astype(np.float32)/self.sampling_rate for s in sp]
 
     def compute_statistics(self,srate = 30000.,npre = None,recompute = False):
         '''
@@ -257,7 +265,9 @@ class Clusters():
         self.load_waveforms(reload=recompute) # loads electrode depth and so to cluster_info
         for iclu,ts in tqdm(zip(self.cluster_info.cluster_id.values,self),
             desc = '[{0}] Computing unit metrics'.format(self.name)):
-            sp = (ts/self.sampling_rate).astype(np.float32)
+            sp = ts
+            if self.return_samples:
+                sp = sp.astype(np.float32)/self.sampling_rate
             unit = dict(cluster_id = iclu,
                         isi_contamination = isi_contamination(sp, 
                                                               refractory_time=0.0015,
@@ -450,7 +460,7 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
         if self.spike_positions is None:
             self.compute_template_amplitudes_and_depths() 
         from .viz import plot_drift_raster
-        plot_drift_raster(self.spike_times/self.sampling_rate,
+        plot_drift_raster(self.spike_times.astype(np.float32)/self.sampling_rate,
                           self.spike_positions[:,1],
                           self.spike_amplitudes,**kwargs)
         
@@ -569,3 +579,89 @@ def filter_waveforms_gpu(waveforms,low = 300/15000, high = 10000/15000,order = 3
         X = (X.permute(2,0,1) - torch.median(X,axis=2).values).permute(1,2,0)
         
     return tensor_to_numpy(X).astype(waveforms.dtype)
+
+
+
+
+class MultiprobeClusters():
+    def __init__(self,sessions, get_waveforms = True, return_samples = False):
+        '''
+        Checks if data are sorted for a set of sessions and loads data for all probes.
+        It will also compute the alignments of spiketimes of all probes to the first probe and generate the sync interpolation functions
+        '''
+        self.clusters = []
+        self.return_samples = return_samples
+        infos = []
+        from .io import list_sorting_result_paths
+        for s in sessions:
+            sortings = list_sorting_result_paths(s)
+            if len(sortings):
+                for p,sfolder in enumerate(sortings):
+                    self.clusters.append(Clusters(sfolder[0],name = f'probe{p}',
+                                                  get_waveforms = get_waveforms))
+                    self.clusters[-1].cluster_info['probe']  = p
+                    infos.append(self.clusters[-1].cluster_info)
+                break # loads only from the first session
+        if not len(infos):
+                print(f'[MultiprobeCluster] - Could not load {sessions}')
+                return None
+        self.cluster_info = pd.concat(infos)
+        self.update_cluster_info()
+        self.sync_multiprobe_recordings()
+        
+    def update_cluster_info(self): 
+        self.__dict__.update(dict(zip(list(self.cluster_info), self.cluster_info.to_numpy().T)))
+
+    def sync_multiprobe_recordings(self,probe_sync_bit = 6): # does the sync_bit change between systems?
+        if hasattr(self,'master_syncs'):
+            return # data were aligned already
+        # probes get aligned to probe0
+        # probes that share a headstage are aligned by definition (share a clock)
+        # This uses the sync data collected using the metadata, make it work when these files dont exist.
+        # lets align each 'file' separately; the offsets are the same for all probes
+        file_offsets = self.clusters[0].metadata['file_offsets']
+        self.master_syncs = [] # there is a master sync per recorded file.
+        for ifile,offsets in enumerate(file_offsets):
+            probe_sync = [c.metadata[f'file{ifile}_sync_onsets'] for c in self.clusters]
+            probe_sync = [p[probe_sync_bit] for p in probe_sync]
+            probe_sync = [p[(p>offsets[0]) & (p<offsets[1])] for p in probe_sync]
+            master_sync = probe_sync[0]
+            sync_func = [interp1d(p, master_sync, fill_value = 'extrapolate') for p in probe_sync]
+            # apply the corrections to the spike times of every cluster
+            for i,(c,f) in enumerate(zip(self.clusters,sync_func)):
+                cidx = (c.spike_times>offsets[0]) & (c.spike_times<offsets[1])
+                self.clusters[i].spike_times[cidx] = f(c.spike_times[cidx]).astype(c.spike_times.dtype)
+            self.master_syncs.append(master_sync)
+            self.sampling_rate = self.clusters[0].sampling_rate
+            self.clusters[0].sampling_rate = self.clusters[0].sampling_rate # adjust the sampling rate of each cluster
+        # plt.figure()
+        # plt.plot(probe_sync[0],(probe_sync[2]-probe_sync[0]),'ko')
+        # plt.plot(probe_sync[0],sync_func[2](probe_sync[2])-probe_sync[0],'ro')
+        
+    def __getitem__(self, index):
+        ''' returns the spiketimes for a set of clusters'''
+        if type(index) in [int,np.int64,np.int32]:
+            index = [index]
+        if type(index) in [slice]:
+            index = np.arange(*index.indices(len(self)))
+        sp = []
+        for idx,item in self.cluster_info[index].iterrows():
+            sp.append(self._get_cluster(item))  
+        if self.return_samples:
+            if len(sp) == 1:
+                return sp[0]
+            else:
+                return sp
+        else:
+            if len(sp) == 1:
+                return sp[0].astype(np.float32)/self.sampling_rate
+            else:
+                return [s.astype(np.float32)/self.sampling_rate for s in sp]
+            
+    def _get_cluster(self,item):
+        '''gets the cluster from each 'clusters' object'''
+        probe = item.probe
+        cluster_id = item.cluster_id
+        return self.clusters[probe].get_cluster(cluster_id)
+    def __len__(self):
+        return len(self.cluster_info)

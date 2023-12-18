@@ -60,7 +60,9 @@ def move_sorting_results(
         if not sorting_results_path.exists():
                 sorting_results_path.mkdir(parents=True, exist_ok=True)
         for f in tqdm(files_to_copy,desc = 'Moving files'):
-                shutil.move(f,sorting_results_path)
+                if os.path.exists(sorting_results_path/f.name):
+                        os.remove(sorting_results_path/f.name) #need to delete files before moving to avoid weird permission error
+                shutil.move(f,sorting_results_path/f.name)
 
         return sorting_results_path
 
@@ -107,9 +109,12 @@ def ks25_run(sessionfiles = [],
                                           sampling_rate = 30000,
                                           lowpass = 300,
                                           highpass = 10000,
-                                          return_gpu = False),
+                                          return_gpu = True),
+                                     dict(function = 'phase_shift_gpu',
+                                          sample_shifts = None,
+                                          return_gpu = True),
                                      dict(function = 'global_car_gpu',
-                                          return_gpu = True)]):
+                                          return_gpu = False)]):
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
@@ -258,14 +263,19 @@ def ks25_post_processing(resultsfolder,
         # 1. remove duplicates
         from .clusters import Clusters
         resultsfolder = Path(resultsfolder)
-        sp = Clusters(resultsfolder,get_metrics = False)
+        sp = Clusters(resultsfolder,get_metrics = False,get_waveforms=False,load_template_features = True)
         sp.remove_duplicate_spikes(overwrite_phy=True)
+        del sp
         # 2. compute_waveforms and store to disk
+        sp = Clusters(resultsfolder,get_metrics = False,get_waveforms=False)
         meta = load_dict_from_h5(list(resultsfolder.glob('filtered_recording.*.metadata.hdf'))[0])
         from .io import map_binary
         data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
         # don't filter the waveforms because it was done before.
         sp.extract_waveforms(data,np.arange(meta['nchannels']),max_n_spikes=max_n_spikes,save_folder_path = resultsfolder,filter_par = None)
+        del sp
+        # Compute metrics and mean waveforms
+        sp = Clusters(resultsfolder,get_metrics = True, get_waveforms=True, load_template_features = True)
         
         # 4. move the files to a new folder
         if move:

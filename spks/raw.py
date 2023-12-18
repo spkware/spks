@@ -6,6 +6,7 @@ from .spikeglx_utils import load_spikeglx_binary, load_spikeglx_mtsdecomp
 SPIKEGLX_FILE_EXTENSION = '.bin'
 MTSCOMP_FILE_EXTENSION = '.cbin'
 
+
 @torch.no_grad()
 def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, padlen = 150):
     '''
@@ -13,12 +14,7 @@ def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, p
       - chunk are [TIMExCHANNELS] 
       - a and b are the coefficients
     '''
-    if device is None:
-        device = 'cuda'
-    if device == 'cuda': # uses torchaudio
-        if not torch.cuda.is_available():
-            print('Torch does not have access to the GPU; setting device to "cpu"')
-            device = 'cpu'
+    device = check_cuda(device)
     # need to include padding also here.
     # make this accept a GPU tensor
     if isinstance(chunk,np.ndarray):
@@ -29,7 +25,7 @@ def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, p
     T = torch.nn.functional.pad(T,(padlen,padlen),'reflect') # apply padding for filter
     aa = torch.from_numpy(np.array(a,dtype='float32')).to(device)
     bb = torch.from_numpy(np.array(b,dtype='float32')).to(device)
-    X = torchaudio.functional.filtfilt(T,aa,
+    X = torchaudio.functional.filtfilt(T.to(torch.float32),aa,
         bb,clamp=False)
     if global_car:
         X = X-torch.median(X,axis=0).values
@@ -42,14 +38,11 @@ def filtfilt_chunk(chunk,a,b,global_car=False, return_gpu = True, device=None, p
         return X
     return tensor_to_numpy(X)
 
-def tensor_to_numpy(X):
-    '''Converts a tensor to numpy array.''' 
-    return X.to('cpu').numpy()
-
-def global_car_gpu(chunk,return_gpu = True):
+def global_car_gpu(chunk, device = None,return_gpu = False):
+    device = check_cuda(device)
     if isinstance(chunk,np.ndarray):
         dtype = chunk.dtype
-        chunk = torch.from_numpy(chunk)
+        chunk = torch.from_numpy(chunk,device = device)
     if chunk.shape[1]<6: # only compute the median if the shape is larger than 6 channels
         X = chunk.T
     else:
@@ -61,21 +54,60 @@ def global_car_gpu(chunk,return_gpu = True):
 
 def bandpass_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device = None, return_gpu = True):
     '''
-    bandpass filter
+    bandpass filter using pytorch
     '''
     sratecoeff = sampling_rate/2.
     b,a = butter(order,[lowpass/sratecoeff, highpass/sratecoeff], btype='bandpass')
 
     return filtfilt_chunk(data, a , b, device = device, return_gpu = return_gpu)
 
+def phase_shift_gpu(X,sample_shifts,device = None, padlen = 50, return_gpu = True):
+    ''' 
+    Compensate for the phase shift induced during digitization.
+
+    Adapted for pytorch from spike interface. 
+    '''
+    device = check_cuda(device)
+    if isinstance(X,np.ndarray):
+        dtype = X.dtype
+        X = torch.from_numpy(X,device = device)
+    if sample_shifts is None:
+        # skipping.
+        return X
+    # apply padding
+    T = torch.nn.functional.pad(X.to(torch.float32).T,(padlen,padlen),'reflect').T # apply padding for filter
+    xf = torch.fft.rfft(T,axis = 0)
+    n = T.shape[0]
+    if n % 2 == 0:
+        # n is even sig_f[-1] is nyquist and so pi
+        omega = torch.linspace(0, np.pi, xf.shape[0],device=device)
+    else:
+        # n is odd sig_f[-1] is exactly nyquist!! we need (n-1) / n factor!!
+        omega = torch.linspace(0, np.pi * (n - 1) / n, xf.shape[0],device = device)
+    # broadcast omega and sample_shifts depend the axis
+
+    if X.shape[1] == len(sample_shifts)-1:
+        # then you passed a sync channel also, make it not fail
+        sample_shifts = np.hstack([sample_shifts,0])
+    shifts = omega[:, np.newaxis] * numpy_to_tensor(sample_shifts[np.newaxis, :], device = device)
+    xf = torch.fft.irfft(xf * torch.exp(-1j * shifts), n=n, axis=0)
+    xf = xf[padlen:-padlen,:]
+    if return_gpu:
+        return xf
+    else:
+        return tensor_to_numpy(xf)
+
 
 default_filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
                                     sampling_rate = 30000,
                                     lowpass = 300,
-                                    highpass = 10000,
-                                    return_gpu = False),
+                                    highpass = 12000,
+                                    return_gpu = True),
+                               dict(function = 'phase_shift_gpu',
+                                    sample_shifts = None,
+                                    return_gpu = True),
                                dict(function = 'global_car_gpu',
-                                    return_gpu = True)]
+                                    return_gpu = False)]
 
 def parse_filter_pipeline(filterlist):
     '''
@@ -89,7 +121,10 @@ def parse_filter_pipeline(filterlist):
             List of functions that take the data as input and can be applied sequentially.
             
     '''
-    from spks.raw import bandpass_filter_gpu, global_car_gpu # import filters from here
+    from spks.raw import (bandpass_filter_gpu,
+                          bandstop_filter_gpu,
+                          phase_shift_gpu,
+                          global_car_gpu) # import filters from here
     functions = []
     for f in filterlist:
         func = f['function']
@@ -97,6 +132,29 @@ def parse_filter_pipeline(filterlist):
         del par['function']
         functions.append(partial(eval(func),**par))
     return functions
+
+def shifts_from_adc_channel_groups(adc_channel_groups):
+    '''
+    Compute the shifts in ADC groups
+    
+Example:
+channel_ids,tshifts = shifts_from_adc_channel_groups(dat.metadata[0]['adc_channel_groups']  )
+    '''
+    shifts = []
+    nsamples = len(adc_channel_groups) 
+    for i,group in enumerate(adc_channel_groups):
+        shifts.append(np.ones(len(group))*i/nsamples)
+    channel_ids,tshifts = np.hstack(adc_channel_groups),np.hstack(shifts)
+    isort = np.argsort(channel_ids)
+    return channel_ids[isort],tshifts[isort]
+
+def bandstop_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device = None, return_gpu = True):
+    '''
+    bandpass filter
+    '''
+    sratecoeff = sampling_rate/2.
+    b,a = butter(order,[lowpass/sratecoeff, highpass/sratecoeff], btype='bandstop')
+    return filtfilt_chunk(data, a , b, device = device, return_gpu = return_gpu)
 
 class RawRecording(object): 
     def __init__(self,files, 
@@ -122,8 +180,8 @@ class RawRecording(object):
         self.return_voltage = return_voltage
         self._init_parameters()
         self._parse_filter_pipeline_par(filter_pipeline_par)
-        
-    def _parse_filter_pipeline_par(self,filter_pipeline_par):
+
+    def _parse_filter_pipeline_par(self,filter_pipeline_par, channels = None):
         ''' 
 Gets the sampling rate into all filters that need it and initializes filter functions
         '''
@@ -132,9 +190,18 @@ Gets the sampling rate into all filters that need it and initializes filter func
 
         for i,f in enumerate(self.filter_pipeline_par):
             for k in f.keys():
-                if k == ['sampling_rate']:
+                if k == 'sampling_rate':
                     self.filter_pipeline_par[i][k] = self.sampling_rate
-                    
+                if (k == 'sample_shifts' and
+                    'adc_channel_groups' in self.metadata[0].keys()):
+                    # TODO handle when there are more channels than possible
+                    self.filter_pipeline_par[i][k] = shifts_from_adc_channel_groups(self.metadata[0]['adc_channel_groups'])[1]
+                    if not channels is None:
+                        tt = self.filter_pipeline_par[i][k]
+                        if np.max(channels)>len(tt)-1:
+                            tt = np.zeros(np.max(channels)+1)
+                            tt[:len(self.filter_pipeline_par[i][k])] = self.filter_pipeline_par[i][k]
+                        self.filter_pipeline_par[i][k] = tt[channels]
         self.filter_pipeline = parse_filter_pipeline(self.filter_pipeline_par)
         
     def __len__(self):
@@ -159,6 +226,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
             idx1 = index
         if idx2 is None:
             idx2 = range(self.shape[1])
+        self._parse_filter_pipeline_par(self.filter_pipeline_par,channels = idx2)
         # figure out which samples to take
         return self._get_trace(idx1,idx2)
         
@@ -250,13 +318,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
                   chunksize = 30000*2, sync_channel = -1, 
                   get_channels_mad = True,
                   n_jobs = None,
-                  filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
-                                              sampling_rate = 30000,
-                                              lowpass = 300,
-                                              highpass = 10000,
-                                              return_gpu = False),
-                                         dict(function = 'global_car_gpu',
-                                              return_gpu = True)]):
+                  filter_pipeline_par = default_filter_pipeline_par):
         # create a binary file
         '''
         Exports to binary file and a channelmap.
@@ -270,7 +332,8 @@ Gets the sampling rate into all filters that need it and initializes filter func
             
         if channels is None:
             channels = np.arange(self.shape[1], dtype = int)
-            
+        self._parse_filter_pipeline_par(filter_pipeline_par, channels = channels)
+        filter_pipeline_par = self.filter_pipeline_par
         out = np.memmap(filename,
                         dtype = self.dtype,
                         mode = 'w+',
@@ -280,7 +343,8 @@ Gets the sampling rate into all filters that need it and initializes filter func
         # get the number of jobs depending on the available cuda size
         if n_jobs is None:
             if torch.cuda.is_available():
-                n_jobs = int(np.ceil(torch.cuda.mem_get_info()[0]/(chunksize*2*8*1000)))
+                n_jobs = int(np.ceil(torch.cuda.mem_get_info()[0]/(chunksize*3.7*32*len(channels))))
+                # This depends on which preprocessing is done.. For the fft we need more memory
             else:
                 n_jobs = 2
 
@@ -356,6 +420,7 @@ def _write_chunk_from_files(files, chunk, outputmmap,
 
     '''
     dat = RawRecording(files,return_preprocessed=False)
+
     filter_pipeline = parse_filter_pipeline(filter_pipeline_par)
     buf = dat[chunk[0]:chunk[1]]
     if not sync_channel is None:
