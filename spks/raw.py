@@ -192,7 +192,8 @@ Gets the sampling rate into all filters that need it and initializes filter func
             for k in f.keys():
                 if k == 'sampling_rate':
                     self.filter_pipeline_par[i][k] = self.sampling_rate
-                if k == 'sample_shifts':
+                if (k == 'sample_shifts' and
+                    'adc_channel_groups' in self.metadata[0].keys()):
                     # TODO handle when there are more channels than possible
                     self.filter_pipeline_par[i][k] = shifts_from_adc_channel_groups(self.metadata[0]['adc_channel_groups'])[1]
                     if not channels is None:
