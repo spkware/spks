@@ -168,23 +168,24 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     return wavemetrics
 
 
-def estimate_active_channels(cluster_waveforms_mean,madthresh = 15):
+def estimate_active_channels(cluster_waveforms_mean,madthresh = 3):
     '''
     TODO
     '''
     nclusters,nsamples,nchannels = cluster_waveforms_mean.shape
-
-    peak_amp = [mwave[nsamples//2-15:nsamples//2+15,:].max(axis=0) - mwave[nsamples//2-15:nsamples//2+15,:].min(axis=0)
+    N = int(nsamples/3)
+    peak_amp = [mwave[nsamples//2-N:nsamples//2+N,:].max(axis=0) - 
+                mwave[nsamples//2-N:nsamples//2+N,:].min(axis=0)
             for mwave in cluster_waveforms_mean]
-    # get the threshold from the median_abs_deviation, this is quite low and we are comparing with the peak amplitude so use a high madthresh
-    mad_thresh = mad(cluster_waveforms_mean[:,:nsamples//2-15,:].reshape(-1,nchannels)) 
-
+    
+    # get the threshold from the median_abs_deviation
+    channel_mad = mad(peak_amp) 
     # "active" channels
     activeidx = []
     for p in peak_amp:
-            activeidx.append(np.where(p>mad_thresh*madthresh)[0])
+            activeidx.append(np.where(p>channel_mad*madthresh)[0])
 
-    nactive_channels = np.array([len(a) for a in activeidx]).astype(np.uint32)
+    nactive_channels = np.array([len(a) for a in activeidx]).astype(np.uint32) # not used
     return activeidx
 
 

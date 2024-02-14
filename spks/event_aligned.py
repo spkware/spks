@@ -44,11 +44,11 @@ def plot_raster(spks, offset=0.0, height=1.0,
         a = np.hstack([i*np.ones_like(s) + offset for i,s in enumerate(spks)])
         b = np.hstack(spks)
         if len(colors) == len(spks):
-            colors = np.hstack([[colors[i]]*len(s) for i,s in enumerate(spks)]) # to color each trial differently
+            colors = np.hstack([[colors[i]]*len(s) for i,s in enumerate(spks) if len(s)]) # to color each trial differently
         s = np.ones_like(b)*markersize
         ax.scatter(b,a,s,c = colors, marker = '|', lw = lw, **kwargs)
         ax.autoscale(tight = True)
-
+    
 def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
     """create aligned rasters relative to event_times
 
