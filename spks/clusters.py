@@ -628,12 +628,12 @@ class MultiprobeClusters():
             master_sync = probe_sync[0]
             sync_func = [interp1d(p, master_sync, fill_value = 'extrapolate') for p in probe_sync]
             # apply the corrections to the spike times of every cluster
-            for i,(c,f) in enumerate(zip(self.clusters,sync_func)):
+            for icluster,(c,f) in enumerate(zip(self.clusters,sync_func)):
                 cidx = (c.spike_times>offsets[0]) & (c.spike_times<offsets[1])
-                self.clusters[i].spike_times[cidx] = f(c.spike_times[cidx]).astype(c.spike_times.dtype)
+                self.clusters[icluster].spike_times[cidx] = f(c.spike_times[cidx]).astype(c.spike_times.dtype)
+                self.clusters[icluster].sampling_rate = self.clusters[0].sampling_rate # adjust the sampling rate of each cluster
             self.master_syncs.append(master_sync)
             self.sampling_rate = self.clusters[0].sampling_rate
-            self.clusters[0].sampling_rate = self.clusters[0].sampling_rate # adjust the sampling rate of each cluster
         # plt.figure()
         # plt.plot(probe_sync[0],(probe_sync[2]-probe_sync[0]),'ko')
         # plt.plot(probe_sync[0],sync_func[2](probe_sync[2])-probe_sync[0],'ro')
