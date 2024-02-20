@@ -111,13 +111,13 @@ Memory maps a binary file to numpy array.
         mode ('r')      : mode to open file ('w' - overwrites/creates; 'a' - allows overwriting samples)
         nsamples (None) : number of samples (if None - gets nsamples from the filesize, nchannels and dtype)
     Outputs:
-        data            : numpy.memmap object (nchannels x nsamples array)
+        data            : numpy.memmap object (nsamples x nchannels array)
 See also: map_spikeglx, numpy.memmap
 
     Usage:
 Plot a chunk of data:
     dat = map_binary(filename, nchannels = 385)
-    chunk = dat[:-150,3000:6000]
+    chunk = dat[3000:6000, :-150]
     
     import pylab as plt
     offset = 40
@@ -128,7 +128,7 @@ Plot a chunk of data:
     '''
     dt = np.dtype(dtype)
     if not os.path.exists(fname):
-        if not mode == 'w':
+        if not mode == 'w+':
             raise(ValueError('File '+ fname +' does not exist?'))
         else:
             print('Does not exist, will create [{0}].'.format(fname))
