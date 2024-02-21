@@ -85,7 +85,7 @@ def read_spikeglx_meta(metafile):
         maxval = 512
     if 'imAiRangeMax' in meta.keys():
         meta['conversion_factor_microV'] = 1e6*float(meta['imAiRangeMax'])/maxval
-    elif 'imAiRangeMax' in meta.keys():
+    elif 'niAiRangeMax' in meta.keys():
         meta['conversion_factor_microV'] = 1e6*float(meta['niAiRangeMax'])/32768
     if 'imroTbl' in meta.keys():
         meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'])
