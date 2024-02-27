@@ -215,8 +215,10 @@ Gets the sampling rate into all filters that need it and initializes filter func
         if type(index) is tuple: # then look for 2 channels
             if type(index[1]) is slice:
                 idx2 = range(*index[1].indices(self.shape[1]))
-            elif type(index[1]) in [int,np.int32, np.int64]: # just a frame
+            elif type(index[1]) in [int,np.int32, np.int64]:
                 idx2 = [index[1]]
+            elif type(index[1]) in [list,np.array,np.ndarray]:
+                idx2 = [i for i in index[1]]
             index = index[0]
         if type(index) is slice:
             idx1 = range(*index.indices(self.shape[0]))#start, index.stop, index.step)
