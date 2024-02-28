@@ -158,7 +158,8 @@ def bandstop_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device
 
 class RawRecording(object): 
     def __init__(self,files, 
-                 filter_pipeline_par = default_filter_pipeline_par,
+                 filter_pipeline_par = [dict(**d) for d in
+                                        default_filter_pipeline_par],
                  return_preprocessed = True,
                  device = None,  #TODO: make that the functions can make use of this. Right now it always uses the cuda if available..
                  return_voltage = False, **kwargs):
@@ -320,7 +321,8 @@ Gets the sampling rate into all filters that need it and initializes filter func
                   chunksize = 30000*2, sync_channel = -1, 
                   get_channels_mad = True,
                   n_jobs = None,
-                  filter_pipeline_par = default_filter_pipeline_par):
+                  filter_pipeline_par = [dict(**d) for d in
+                                         default_filter_pipeline_par]):
         # create a binary file
         '''
         Exports to binary file and a channelmap.
