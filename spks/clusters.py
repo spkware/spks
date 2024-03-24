@@ -116,14 +116,19 @@ class Clusters():
         ''' Load the template features and amplitudes '''
         # Load the amplitudes used to fit the template
         self.spike_template_amplitudes = self._load_optional('amplitudes.npy',spike_template_amplitudes)
+        # load the templates used to extract the spikes
+        self.templates =  self._load_optional('templates.npy')
         # load spike templates (which template was fitted) for each spike
         self.spike_templates = self._load_optional('spike_templates.npy',spike_templates)
+        if self.spike_templates.max() > self.templates.shape[0]:
+            self.spike_templates = self.spike_clusters
+        
+        if not self.spike_templates is None:
+            self.spike_templates = self.spike_templates.astype(np.int64)
         # load the principle component features for each spike nspikes x featuresperchannel x nfeatures            
         self.spike_pc_features = self._load_optional('pc_features.npy',spike_pc_features)
         # template index for each PC feature
         self.template_pc_features_ind = self._load_optional('pc_feature_ind.npy',template_pc_features_ind)
-        # load the templates used to extract the spikes
-        self.templates =  self._load_optional('templates.npy')
         # load the whitening matrix (to correct for the templates having been whitened)
         self.whitening_matrix = self._load_optional('whitening_mat_inv.npy')
         if not self.whitening_matrix is None:

@@ -193,7 +193,6 @@ def estimate_active_channels(cluster_waveforms_mean,madthresh = 3):
 ################EXTRACT WAVEFORMS#######################
 ########################################################
 
-
 def __work_extract_waveforms(data, waveforms, timestamps, time_indices, chmap, chunk_inds, flush_memory):
     """Extracts waveforms from binary file and writes them to the global variable waveforms."""
     
