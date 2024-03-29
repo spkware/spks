@@ -56,7 +56,7 @@ def get_overlapping_spikes_indices(spike_times,
         to_delete = np.hstack(indices)
      
     # apply so we can look at cross-unit duplicates.
-    print('get_overlapping_spikes_indices] - found {0} "double counted" of {1} within unit spikes'.format(len(to_delete)))
+    print('get_overlapping_spikes_indices] - found {0} "double counted" within unit spikes'.format(len(to_delete)))
     org_idx = np.delete(org_idx,to_delete)
     ts = np.delete(ts,to_delete)
     clus = np.delete(clus,to_delete)
