@@ -184,7 +184,8 @@ def run_kilosort(sessionfiles = [],
                         foldername,
                         binaryfilepath,
                         binary,
-                        metadata)
+                        metadata,
+                        motion_correction)
         else:
                 raise(OSError('Undefined version {version}'))
         if do_post_processing:
@@ -196,27 +197,27 @@ def run_kilosort(sessionfiles = [],
                         sorting_folder_dictionary = sorting_folder_dictionary)
         return foldername
 
-def run_kilosort4(device, foldername, binaryfilepath, binary, metadata):
+def run_kilosort4(device, foldername, binaryfilepath, binary, metadata, motion_correction):
         nchannels = metadata['nchannels']
         coords = np.stack(metadata['channel_coords'])
-
+        
         # lets stack the shanks... because kilosort 4.0 can not handle multiple shanks.. 
         fix_shanks = True # flag to fix the phy coords
         yc = coords[:,1].astype(float)
         xc = coords[:,0].astype(float)
         previous = 0
         for shank in np.unique(metadata['channel_shank']):
-                idx = np.where(metadata['channel_shank']==shank)
+                idx = np.where(metadata['channel_shank'] == shank)
                 offset = np.max(yc[idx])
                 yc[idx] = (yc[idx]-np.min(yc[idx])) + previous
                 xc[idx] = (xc[idx]-np.min(xc[idx]))
-                previous += 100 + offset # stack the channels on top of each other...
+                previous += 100 + offset
 
         probe = dict(n_chan = nchannels,
                      xc = xc,
                      yc = yc,
-                     chanMap = np.array(metadata['channel_idx'],dtype=int),
-                     kcoords = np.array(metadata['channel_shank'],dtype=int).T)
+                     chanMap = np.array(metadata['channel_idx'], dtype=int),
+                     kcoords = np.array(metadata['channel_shank'], dtype=int).T)
 
         from kilosort import run_kilosort
         settings = dict(fs = metadata['sampling_rate'],
@@ -228,16 +229,14 @@ def run_kilosort4(device, foldername, binaryfilepath, binary, metadata):
         ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate = run_kilosort(filename = binaryfilepath,
                                                                                           results_dir = foldername,
                                                                                           settings=settings, 
-                                                                                          data_dtype = 'int16', # hardcoded now..
+                                                                                          data_dtype = 'int16', # hardcoded for now..
                                                                                           probe = probe,
                                                                                           device = device)
+
+        if 'fix_shanks' in dir():
+                np.save(foldername/'channel_positions.npy',coords.astype(float))
+                
         return ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate
-
-if 'fix_shanks' in dir():
-    yc = coords[:,1].astype(float)
-    xc = coords[:,0].astype(float)
-
-
 
 def kilosort_post_processing(resultsfolder,
                              sessionfolder,
