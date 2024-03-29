@@ -70,7 +70,7 @@ def move_sorting_results(
 def run_kilosort(sessionfiles = [],
                  foldername = None,
                  temporary_folder = 'temporary',
-                 version = '2.5'
+                 version = '2.5',
                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                  sorting_folder_dictionary = dict(sortname = None, probename = 'probe0'),
                  do_post_processing = False, device = 'cuda',gpu_index = 0,
