@@ -67,34 +67,34 @@ def move_sorting_results(
                 shutil.move(f,sorting_results_path/f.name)
         return sorting_results_path
 
-def ks25_run(sessionfiles = [],
-             foldername = None,
-             temporary_folder = 'temporary',
-             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
-             sorting_folder_dictionary = dict(sortname = 'kilosort25', probename = 'probe0'),
-             do_post_processing = False, device = 'cuda',gpu_index = 0,
-             compiled_name = 'kilosort2_5',
-             motion_correction = True,
-             thresholds = [9.,3.],
-             lowpass = 300.,
-             highpass = 13000.,
-             filter_pipeline_par =  [dict(function = 'bandpass_filter_gpu',
-                                          sampling_rate = 30000,
-                                          lowpass = 300,
-                                          highpass = 13000,
-                                          return_gpu = True),
-                                     dict(function = 'phase_shift_gpu',
-                                          sample_shifts = None,
-                                          return_gpu = True),
-                                     dict(function = 'global_car_gpu',
-                                          return_gpu = False)]):
+def run_kilosort(sessionfiles = [],
+                 foldername = None,
+                 temporary_folder = 'temporary',
+                 version = '2.5'
+                 sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                 sorting_folder_dictionary = dict(sortname = None, probename = 'probe0'),
+                 do_post_processing = False, device = 'cuda',gpu_index = 0,
+                 motion_correction = True,
+                 thresholds = None,
+                 lowpass = 300.,
+                 highpass = 13000.,
+                 filter_pipeline_par =  [dict(function = 'bandpass_filter_gpu',
+                                              sampling_rate = 30000,
+                                              lowpass = 300,
+                                              highpass = 13000,
+                                              return_gpu = True),
+                                         dict(function = 'phase_shift_gpu',
+                                              sample_shifts = None,
+                                              return_gpu = True),
+                                         dict(function = 'global_car_gpu',
+                                              return_gpu = False)]):
         '''
-        Runs kilosort 2.5 given binary files, returns a folder with the results.
+        Runs kilosort given binary files, returns a folder with the results.
         '''
         
         using_scratch = False
         if foldername is None:
-                foldername = create_temporary_folder(temporary_folder, prefix='ks25_sorting')
+                foldername = create_temporary_folder(temporary_folder, prefix=f'ks{version}_sorting')
                 using_scratch = True
                 
         for f in filter_pipeline_par:
@@ -120,40 +120,7 @@ def ks25_run(sessionfiles = [],
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
         if lowpass is None:
                 lowpass = 300.
-        # kilosort options TODO: expose other options
-        ops = dict(ops=dict(NchanTOT=float(metadata['nchannels']),
-                            Nchan = float(len(metadata['channel_idx'])),
-                            datatype = 'dat',
-                            fbinary = binaryfilepath,
-                            fproc = pjoin(output_folder,'temp_wh.dat'),
-                            trange = [0.,np.inf],
-                            chanMap = channelmappath,
-                            fs = metadata['sampling_rate'],
-                            CAR = 1.,
-                            fshigh = lowpass,
-                            nblocks = 5.,
-                            sig = 20.,
-                            Th = thresholds,
-                            lam = 10.,
-                            AUCsplit = 0.9,
-                            minFR = 1./50,
-                            momentum = [20.,400.],
-                            sigmaMask = 30.,
-                            ThPre  = 8.,
-                            spkTh = -6.,
-                            reorder = 1.,
-                            nskip = 25.,
-                            GPU = gpu_index + 1, # indices are one based ...
-                            nfilt_factor = 4.,
-                            ntbuff  = 64.,
-                            NT = 65600.,
-                            whiteningRange = 32.,
-                            nSkipCov = 25.,
-                            scaleproc = 200.,
-                            nPCs = 3,
-                            useRam = 0,
-                            doCorrection = int(motion_correction),
-                            nt0 = 61.))
+        
         nchannels = metadata['nchannels']
         coords = np.stack(metadata['channel_coords'])
         # make the channelmap file
@@ -165,21 +132,63 @@ def ks25_run(sessionfiles = [],
                        chanMap0ind = np.array(metadata['channel_idx'],dtype=np.int64),
                        kcoords = np.array(metadata['channel_shank'],dtype=float).T+1,
                        fs = metadata['sampling_rate'])
-        # save the files 
         from scipy.io import savemat
-        savemat(opspath, ops,appendmat = False)
         savemat(channelmappath, chanMap,appendmat = False)
-        import shutil
-        if not shutil.which(compiled_name) is None:
-                os.system(f'{compiled_name} {output_folder}') # easier to kill than subprocess?
-        else:  # just run using a local installation..
-                matlabfile = pjoin(output_folder,'run_ks.m')
-                with open(matlabfile,'w') as f:
-                        f.write(kilosort25_matlabcommand.format(output_folder = output_folder))
-                cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
-                os.system(cmd) # easier to kill than subprocess?
+
+        if version == '2.5':
+                compiled_name = 'kilosort2_5'
+                if thresholds is None:
+                        thresholds = [9.,3.]
+                ops = dict(dict(default_ks25_ops,
+                                NchanTOT=float(metadata['nchannels']),
+                                Nchan = float(len(metadata['channel_idx'])),
+                                fbinary = binaryfilepath,
+                                fproc = pjoin(output_folder,'temp_wh.dat'),
+                                chanMap = channelmappath,
+                                fs = metadata['sampling_rate'],
+                                doCorrection = int(motion_correction),
+                                fshigh = lowpass,
+                                Th = thresholds,
+                                GPU = gpu_index + 1)) # indices are one based ...
+                matlabcommand = kilosort25_matlabcommand
+        elif version == '3.0':
+                compiled_name = 'kilosort3_0'
+                if thresholds is None:
+                        thresholds = [9.,9.]
+                ops = dict(dict(default_ks30_ops,
+                                NchanTOT=float(metadata['nchannels']),
+                                Nchan = float(len(metadata['channel_idx'])),
+                                fbinary = binaryfilepath,
+                                fproc = pjoin(output_folder,'temp_wh.dat'),
+                                chanMap = channelmappath,
+                                fs = metadata['sampling_rate'],
+                                doCorrection = int(motion_correction),
+                                fshigh = lowpass,
+                                Th = thresholds,
+                                GPU = gpu_index + 1)) # indices are one based ...
+        if version in ['2.5','3.0']:
+                # save the files 
+                savemat(opspath, ops,appendmat = False)
+                import shutil
+                if not shutil.which(compiled_name) is None:
+                        os.system(f'{compiled_name} {output_folder}') # easier to kill than subprocess?
+                else:  # just run using a local installation..
+                        matlabfile = pjoin(output_folder,'run_ks.m')
+                        with open(matlabfile,'w') as f:
+                                f.write(matlabcommand.format(output_folder = output_folder))
+                        cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
+                        os.system(cmd) # easier to kill than subprocess?
+        elif version == '4.0':
+                ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate = run_kilosort4(
+                        device,
+                        foldername,
+                        binaryfilepath,
+                        binary,
+                        metadata)
+        else:
+                raise(OSError('Undefined version {version}'))
         if do_post_processing:
-                foldername = ks25_post_processing(
+                foldername = kilosort_post_processing(
                         foldername,
                         sessionfiles,
                         move =  using_scratch, 
@@ -187,14 +196,57 @@ def ks25_run(sessionfiles = [],
                         sorting_folder_dictionary = sorting_folder_dictionary)
         return foldername
 
-def ks25_post_processing(resultsfolder,
-                         sessionfolder,
-                         move = False,
-                         sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
-                         sorting_folder_dictionary = dict(
-                                 sortname = 'kilosort25',
-                                 probename = 'probe0'),
-                         max_n_spikes = 1000):
+def run_kilosort4(device, foldername, binaryfilepath, binary, metadata):
+        nchannels = metadata['nchannels']
+        coords = np.stack(metadata['channel_coords'])
+
+        # lets stack the shanks... because kilosort 4.0 can not handle multiple shanks.. 
+        fix_shanks = True # flag to fix the phy coords
+        yc = coords[:,1].astype(float)
+        xc = coords[:,0].astype(float)
+        previous = 0
+        for shank in np.unique(metadata['channel_shank']):
+                idx = np.where(metadata['channel_shank']==shank)
+                offset = np.max(yc[idx])
+                yc[idx] = (yc[idx]-np.min(yc[idx])) + previous
+                xc[idx] = (xc[idx]-np.min(xc[idx]))
+                previous += 100 + offset # stack the channels on top of each other...
+
+        probe = dict(n_chan = nchannels,
+                     xc = xc,
+                     yc = yc,
+                     chanMap = np.array(metadata['channel_idx'],dtype=int),
+                     kcoords = np.array(metadata['channel_shank'],dtype=int).T)
+
+        from kilosort import run_kilosort
+        settings = dict(fs = metadata['sampling_rate'],
+                        n_chan_bin = nchannels,
+                        data_dir = foldername)
+        if not motion_correction:
+                settings['nblocks'] = 0
+
+        ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate = run_kilosort(filename = binaryfilepath,
+                                                                                          results_dir = foldername,
+                                                                                          settings=settings, 
+                                                                                          data_dtype = 'int16', # hardcoded now..
+                                                                                          probe = probe,
+                                                                                          device = device)
+        return ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate
+
+if 'fix_shanks' in dir():
+    yc = coords[:,1].astype(float)
+    xc = coords[:,0].astype(float)
+
+
+
+def kilosort_post_processing(resultsfolder,
+                             sessionfolder,
+                             move = False,
+                             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                             sorting_folder_dictionary = dict(
+                                     sortname = 'kilosort25',
+                                     probename = 'probe0'),
+                             max_n_spikes = 1000):
         '''
         Post processing for kilosort results
 
@@ -216,7 +268,9 @@ def ks25_post_processing(resultsfolder,
         from .io import map_binary
         data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
         # don't filter the waveforms because it was done before.
-        sp.extract_waveforms(data,np.arange(meta['nchannels']),max_n_spikes=max_n_spikes,save_folder_path = resultsfolder,filter_par = None)
+        sp.extract_waveforms(data,np.arange(meta['nchannels']),
+                             max_n_spikes=max_n_spikes,
+                             save_folder_path = resultsfolder,filter_par = None)
         del sp
         # Compute metrics and mean waveforms
         sp = Clusters(resultsfolder,get_metrics = True, get_waveforms=True, load_template_features = True)
@@ -240,17 +294,17 @@ def ks25_post_processing(resultsfolder,
 
 from .io import list_spikeglx_binary_paths
 
-def ks25_sort_multiprobe_sessions(sessions,
-                                  temporary_folder = '/scratch', 
-                                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
-                                  sorting_folder_dictionary = dict(
-                                          sortname = 'kilosort25', probename = 'probe0'),
-                                  do_post_processing = True,
-                                  move = True,
-                                  device = 'cuda',
-                                  gpu_index = 0,
-                                  compiled_name = 'kilosort2_5',
-                                  motion_correction = True):
+def sort_multiprobe_sessions(sessions,
+                             temporary_folder = '/scratch',
+                             method = 'kilosort2.5',
+                             sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
+                             sorting_folder_dictionary = dict(
+                                     sortname = 'kilosort', probename = 'probe0'),
+                             do_post_processing = True,
+                             move = True,
+                             device = 'cuda',
+                             gpu_index = 0,
+                             motion_correction = True):
         '''
         Sort multiprobe neuropixels recordings (will concatenate multiple sessions if a list is passed).
         '''
@@ -263,20 +317,20 @@ def ks25_sort_multiprobe_sessions(sessions,
                 all_probe_dirs.append([t[iprobe][0] for t in tmp])
         results = []
         for probepath in all_probe_dirs:
-                print('Running KILOSORT 2.5 on sessions {0}'.format(' ,'.join(probepath)))
+                print('Running {1} on sessions {0}'.format(' ,'.join(probepath),method))
                 sorting_folder_dictionary['probename'] = get_probename(probepath)
                 
-                results_folder = ks25_run(sessionfiles = probepath,
-                                          temporary_folder = temporary_folder,
-                                          sorting_results_path_rules = sorting_results_path_rules,
-                                          sorting_folder_dictionary = sorting_folder_dictionary,
-                                          do_post_processing = False,
-                                          motion_correction = motion_correction,
-                                          compiled_name = compiled_name,
-                                          device=device, gpu_index = gpu_index)
-                print('Completed KILOSORT 2.5. Results folder: {0}'.format(results_folder))
+                results_folder = run_kilosort(sessionfiles = probepath,
+                                              version = method.strip('kilosort'),
+                                              temporary_folder = temporary_folder,
+                                              sorting_results_path_rules = sorting_results_path_rules,
+                                              sorting_folder_dictionary = sorting_folder_dictionary,
+                                              do_post_processing = False,
+                                              motion_correction = motion_correction,
+                                              device=device, gpu_index = gpu_index)
+                print('Completed {1} Results folder: {0}'.format(results_folder,method))
                 if do_post_processing:
-                        results_folder = ks25_post_processing(
+                        results_folder = kilosort_post_processing(
                                 results_folder,
                                 probepath, 
                                 sorting_results_path_rules = sorting_results_path_rules,
@@ -312,6 +366,56 @@ rezToPhy(rez, '{output_folder}');            % write to Phy
 exit(1);
 '''
 
+default_ks25_ops = dict(
+        datatype = 'dat',
+        trange = [0.,np.inf],
+        CAR = 1.,
+        nblocks = 5.,
+        sig = 20.,
+        lam = 10.,
+        AUCsplit = 0.9,
+        minFR = 1./50,
+        momentum = [20.,400.],
+        sigmaMask = 30.,
+        ThPre  = 8.,
+        spkTh = -6.,
+        reorder = 1.,
+        nskip = 25.,
+        nfilt_factor = 4.,
+        ntbuff  = 64.,
+        NT = 65600.,
+        whiteningRange = 32.,
+        nSkipCov = 25.,
+        scaleproc = 200.,
+        nPCs = 3,
+        useRam = 0,
+        nt0 = 61.)
+
+default_ks30_ops = dict(
+        datatype = 'dat',
+        trange = [0.,np.inf],
+        CAR = 1.,
+        nblocks = 5.,
+        sig = 20.,
+        lam = 20.,
+        AUCsplit = 0.8,
+        minFR = 1./50,
+        momentum = [20.,400.],
+        sigmaMask = 30.,
+        ThPre  = 8.,
+        spkTh = -6.,
+        reorder = 1.,
+        nskip = 25.,
+        nfilt_factor = 4.,
+        ntbuff  = 64.,
+        NT = 65600.,
+        whiteningRange = 32.,
+        nSkipCov = 25.,
+        scaleproc = 200.,
+        nPCs = 3,
+        useRam = 0,
+        nt0 = 61.)
+                        
 
 class SpikeSorting(object):
         def __init__(raw_files, output_folder,
@@ -335,3 +439,6 @@ class SpikeSorting(object):
         '''
                 pass
 
+
+
+        

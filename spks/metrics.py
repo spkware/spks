@@ -147,7 +147,7 @@ and counts how many bins have more than *min_spikes*.
     Joao Couto - spks 2023
     """
 
-    counts,_ = np.histogram(sp, np.linspace(t_min, t_max, nbins+1)) # added 1 so the number of bins is actually nbins
+    counts,_ = np.histogram(sp, np.linspace(t_min, t_max, nbins+1)) # add 1 so the number of bins is actually nbins
 
     return np.sum(counts > min_spikes)/nbins
 
@@ -188,3 +188,36 @@ def amplitude_cutoff(amplitudes, num_histogram_bins = 500, histogram_smoothing_v
     fraction_missing = np.min([fraction_missing, 0.5])
 
     return fraction_missing
+
+def depth_stability(sptimes,
+                    spdepths,
+                    tmin = 0,
+                    tmax = None,
+                    min_spikes = 5,
+                    bin_size = 60, # seconds
+                   ):
+    '''
+    Calculate the depth stability of a unit from the spike times and depths.
+    This is also commonly called "drift"; this is inspired in the ecephys metrics. 
+    
+    The max_depth_range is obtained by subtracting the 2 depth extrema 
+(of the median  binned depths over "binsize").
+    The mean depth fluctuation is the average fluctuation between subsequent 
+time periods (the mean so we can compare units recorded for differnet time durations).
+
+    Joao Couto - spks 2024
+    '''
+    if tmax is None:
+        tmax = np.max(sptimes)
+    edges = np.arange(0,tmax,bin_size)
+    
+    bins = np.digitize(sptimes,edges)
+    med_depths = np.zeros(len(edges))
+    med_depths[:] = np.nan
+    for i in range(len(edges)):
+        t = spdepths[bins == i+1]
+        if len(t)>min_spikes:
+            med_depths[i] = np.median(t)
+    max_depth_range = np.nanmax(med_depths) - np.nanmin(med_depths)
+    mean_depth_fluctuation = np.nanmean(np.abs(np.diff(med_depths)))
+    return max_depth_range,mean_depth_fluctuation
