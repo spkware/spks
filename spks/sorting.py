@@ -183,7 +183,6 @@ def run_kilosort(sessionfiles = [],
                         device,
                         foldername,
                         binaryfilepath,
-                        binary,
                         metadata,
                         motion_correction)
         else:
@@ -197,7 +196,7 @@ def run_kilosort(sessionfiles = [],
                         sorting_folder_dictionary = sorting_folder_dictionary)
         return foldername
 
-def run_kilosort4(device, foldername, binaryfilepath, binary, metadata, motion_correction):
+def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correction):
         nchannels = metadata['nchannels']
         coords = np.stack(metadata['channel_coords'])
         
