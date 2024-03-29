@@ -1,7 +1,11 @@
 from .utils import *
 from .waveforms import *
 
-def get_overlapping_spikes_indices(spike_times,spike_clusters,mwaves,channel_positions, nsamples_threshold = 5, distance_radius = 50):
+def get_overlapping_spikes_indices(spike_times,
+                                   spike_clusters,
+                                   mwaves,channel_positions,
+                                   nsamples_threshold = 5,
+                                   distance_radius = 50):
     from tqdm import tqdm
     '''
 
@@ -52,6 +56,7 @@ def get_overlapping_spikes_indices(spike_times,spike_clusters,mwaves,channel_pos
         to_delete = np.hstack(indices)
      
     # apply so we can look at cross-unit duplicates.
+    print('get_overlapping_spikes_indices] - found {0} "double counted" of {1} within unit spikes'.format(len(to_delete)))
     org_idx = np.delete(org_idx,to_delete)
     ts = np.delete(ts,to_delete)
     clus = np.delete(clus,to_delete)

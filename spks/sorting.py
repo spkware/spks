@@ -139,33 +139,33 @@ def run_kilosort(sessionfiles = [],
                 compiled_name = 'kilosort2_5'
                 if thresholds is None:
                         thresholds = [9.,3.]
-                ops = dict(dict(default_ks25_ops,
-                                NchanTOT=float(metadata['nchannels']),
-                                Nchan = float(len(metadata['channel_idx'])),
-                                fbinary = binaryfilepath,
-                                fproc = pjoin(output_folder,'temp_wh.dat'),
-                                chanMap = channelmappath,
-                                fs = metadata['sampling_rate'],
-                                doCorrection = int(motion_correction),
-                                fshigh = lowpass,
-                                Th = thresholds,
-                                GPU = gpu_index + 1)) # indices are one based ...
+                ops = dict(ops = dict(default_ks25_ops,
+                                      NchanTOT=float(metadata['nchannels']),
+                                      Nchan = float(len(metadata['channel_idx'])),
+                                      fbinary = binaryfilepath,
+                                      fproc = pjoin(output_folder,'temp_wh.dat'),
+                                      chanMap = channelmappath,
+                                      fs = metadata['sampling_rate'],
+                                      doCorrection = int(motion_correction),
+                                      fshigh = lowpass,
+                                      Th = thresholds,
+                                      GPU = gpu_index + 1)) # indices are one based ...
                 matlabcommand = kilosort25_matlabcommand
         elif version == '3.0':
                 compiled_name = 'kilosort3_0'
                 if thresholds is None:
                         thresholds = [9.,9.]
-                ops = dict(dict(default_ks30_ops,
-                                NchanTOT=float(metadata['nchannels']),
-                                Nchan = float(len(metadata['channel_idx'])),
-                                fbinary = binaryfilepath,
-                                fproc = pjoin(output_folder,'temp_wh.dat'),
-                                chanMap = channelmappath,
-                                fs = metadata['sampling_rate'],
-                                doCorrection = int(motion_correction),
-                                fshigh = lowpass,
-                                Th = thresholds,
-                                GPU = gpu_index + 1)) # indices are one based ...
+                ops = dict(ops = dict(default_ks30_ops,
+                                      NchanTOT=float(metadata['nchannels']),
+                                      Nchan = float(len(metadata['channel_idx'])),
+                                      fbinary = binaryfilepath,
+                                      fproc = pjoin(output_folder,'temp_wh.dat'),
+                                      chanMap = channelmappath,
+                                      fs = metadata['sampling_rate'],
+                                      doCorrection = int(motion_correction),
+                                      fshigh = lowpass,
+                                      Th = thresholds,
+                                      GPU = gpu_index + 1)) # indices are one based ...
         if version in ['2.5','3.0']:
                 # save the files 
                 savemat(opspath, ops,appendmat = False)
