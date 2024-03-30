@@ -202,8 +202,8 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
         
         # lets stack the shanks... because kilosort 4.0 can not handle multiple shanks.. 
         fix_shanks = True # flag to fix the phy coords
-        yc = coords[:,1].astype(float)
-        xc = coords[:,0].astype(float)
+        yc = coords[:,1].astype(np.float32)
+        xc = coords[:,0].astype(np.float32)
         previous = 0
         for shank in np.unique(metadata['channel_shank']):
                 idx = np.where(metadata['channel_shank'] == shank)
@@ -230,7 +230,8 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
                                                                                           settings=settings, 
                                                                                           data_dtype = 'int16', # hardcoded for now..
                                                                                           probe = probe,
-                                                                                          device = device)
+                                                                                          device = device,
+                                                                                          save_extra_vars = True) # save pc_features
 
         if 'fix_shanks' in dir():
                 np.save(foldername/'channel_positions.npy',coords.astype(float))

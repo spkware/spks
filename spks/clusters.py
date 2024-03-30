@@ -394,23 +394,27 @@ class Clusters():
             self.template_position,self.template_channel = waveforms_position(self.templates_raw,self.channel_positions)
             # get the spike positions and amplitudes from the average templates
             self.spike_amplitudes = np.take(templates_amplitude,self.spike_templates)*self.spike_template_amplitudes
-            if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
-                 if self.spike_pc_features.shape[0] == len(self.spike_times):
-                    self.spike_positions = None
-                    # Compute the spike depth from the features
-                    self.spike_positions = estimate_spike_positions_from_features(
-                        self.spike_templates,
-                        self.spike_pc_features,
-                        self.template_pc_features_ind,
-                        self.channel_positions)
-                 else:
-                     print('''[0] warning spike_pc_features does not have the same size as spike_amplitudes.
- 
+            # if there is a spike_positions.npy file, take the positions from there.
+            self.spike_positions = self._load_optional('spike_locations.npy',None)
+            if self.spike_positions is None: # compute from pc_features
+                if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
+                    if self.spike_pc_features.shape[0] == len(self.spike_times):
+                        self.spike_positions = None
+                        # Compute the spike depth from the features
+                        self.spike_positions = estimate_spike_positions_from_features(
+                            self.spike_templates,
+                            self.spike_pc_features,
+                            self.template_pc_features_ind,
+                            self.channel_positions)
+                    else:
+                        print('''[0] warning spike_pc_features does not have the same size as spike_amplitudes.
+                        
 Spike depths will be based on the template position. Re-sort the dataset to fix {1}'''
-                           .format(self.name,self.folder))
+                              .format(self.name,self.folder))
                 
             if self.spike_positions is None:
                 # without spike features, one can estimate the position from the templates used to fit but it is not great
+                print('[Clusters] warning: taking spike positions from average template position.')
                 self.spike_positions = self.template_position[self.spike_templates,:].squeeze()
                 
     def get_cluster_waveforms(self,cluster_id,n_waveforms = 50):
