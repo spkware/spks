@@ -234,7 +234,11 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
                                                                                           save_extra_vars = True) # save pc_features
 
         if 'fix_shanks' in dir():
-                np.save(foldername/'channel_positions.npy',coords.astype(float))
+                ops['xc'],ops['yc'] = coords.astype(np.float32).T # recompute the spike positions
+                from kilosort.postprocessing import compute_spike_positions
+                positions = compute_spike_positions(st,tF,ops)
+                np.save(Path(foldername)/'spike_positions.npy',np.vstack(positions).T) # overwrite spike positions
+                np.save(Path(foldername)/'channel_positions.npy',coords.astype(float)) # save the correct channel positions
                 
         return ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate
 
