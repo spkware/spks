@@ -116,6 +116,7 @@ def run_kilosort(sessionfiles = [],
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            filter_pipeline_par = filter_pipeline_par,
                                            channels = tt.channel_info.channel_idx.values)
+        
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
         if lowpass is None:
@@ -179,7 +180,7 @@ def run_kilosort(sessionfiles = [],
                         cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
                         os.system(cmd) # easier to kill than subprocess?
         elif version == '4.0':
-                ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate = run_kilosort4(
+                res = run_kilosort4(
                         device,
                         foldername,
                         binaryfilepath,
@@ -239,8 +240,16 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
                 positions = compute_spike_positions(st,tF,ops)
                 np.save(Path(foldername)/'spike_positions.npy',np.vstack(positions).T) # overwrite spike positions
                 np.save(Path(foldername)/'channel_positions.npy',coords.astype(float)) # save the correct channel positions
-                
-        return ops, st, clu, tF, Wall, similar_templates, is_ref, est_contam_rate
+        del ops
+        del st
+        del clu
+        del tF
+        del Wall
+        del similar_templates
+        del is_ref
+        del est_contam_rate
+        free_gpu()
+        return True
 
 def kilosort_post_processing(resultsfolder,
                              sessionfolder,
