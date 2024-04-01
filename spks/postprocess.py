@@ -5,7 +5,8 @@ def get_overlapping_spikes_indices(spike_times,
                                    spike_clusters,
                                    mwaves,channel_positions,
                                    nsamples_threshold = 5,
-                                   distance_radius = 50):
+                                   distance_radius = 50,
+                                   remove_across_units = True):
     from tqdm import tqdm
     '''
 
@@ -67,24 +68,26 @@ def get_overlapping_spikes_indices(spike_times,
     duplicated = []
     
     # only attempt to search for duplicates for units that are within radius and do it only once
-    indices = []
-    for ia,aclu in tqdm(enumerate(unique_clusters), desc='Finding duplicate spikes across units',total=len(unique_clusters)):
-        for ib,bclu in enumerate(unique_clusters):
-            if (ia>ib) and (np.linalg.norm(position[ia] - position[ib]) < distance_radius):
-                # for an alternative see ecephys, this keeps the spikes in the largest unit.
-                s = np.sort(np.hstack([ts[clus==aclu],ts[clus==bclu]])) # the spike times for both units combined
-                duplicated = np.where(np.diff(s)<nsamples_threshold)[0]
-                duplicated_spikes = np.hstack([s[duplicated],s[duplicated+1]])
-                if len(duplicated): # Then there are spikes to remove (the spikes are in duplicated_spikes)
-                    # go to the smallest unit and get the index for those spikes
-                    if np.argmin(peak_to_peak[[ia,ib]]) == 0:
-                        # find the indices of the spikes in cluster a
-                        indices.append(org_idx[clus == aclu][np.isin(ts[clus==aclu], duplicated_spikes)])
-                    else:
-                        # find the indices of the spikes in cluster b
-                        indices.append(org_idx[clus == bclu][np.isin(ts[clus==bclu], duplicated_spikes)])
-    # only delete once (unique) and export also the ones for inside each unit
-    to_delete = np.unique(np.hstack([to_delete]+indices)).flatten().astype(np.uint64) # this should probably be unsigned 64
+    if remove_across_units:
+        indices = []
+        for ia,aclu in tqdm(enumerate(unique_clusters),
+                            desc='Finding duplicate spikes across units',total=len(unique_clusters)):
+            for ib,bclu in enumerate(unique_clusters):
+                if (ia>ib) and (np.linalg.norm(position[ia] - position[ib]) < distance_radius):
+                    # for an alternative see ecephys, this keeps the spikes in the largest unit.
+                    s = np.sort(np.hstack([ts[clus==aclu],ts[clus==bclu]])) # the spike times for both units combined
+                    duplicated = np.where(np.diff(s)<nsamples_threshold)[0]
+                    duplicated_spikes = np.hstack([s[duplicated],s[duplicated+1]])
+                    if len(duplicated): # Then there are spikes to remove (the spikes are in duplicated_spikes)
+                        # go to the smallest unit and get the index for those spikes
+                        if np.argmin(peak_to_peak[[ia,ib]]) == 0:
+                            # find the indices of the spikes in cluster a
+                            indices.append(org_idx[clus == aclu][np.isin(ts[clus==aclu], duplicated_spikes)])
+                        else:
+                            # find the indices of the spikes in cluster b
+                            indices.append(org_idx[clus == bclu][np.isin(ts[clus==bclu], duplicated_spikes)])
+        # only delete once (unique) and export also the ones for inside each unit
+        to_delete = np.unique(np.hstack([to_delete]+indices)) # this should probably be unsigned 64
     print("[get_overlapping_spikes_indices] - found {0} 'double counted' of {1} spikes".format(len(to_delete),len(spike_times)))
-    return to_delete
+    return to_delete.flatten().astype(np.uint64)
 

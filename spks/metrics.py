@@ -46,7 +46,7 @@ def firing_rate(sp,t_min = None,t_max=None):
     # firing rate is just the number of spikes divided by the time interval
     return float(np.sum((sp>=t_min) & (sp<=t_max)))/(t_max-t_min)
 
-def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0005, T = None):
+def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0000, T = None):
     """
     False positives because of *refractory period violations*.
 

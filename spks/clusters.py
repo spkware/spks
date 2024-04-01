@@ -327,9 +327,15 @@ class Clusters():
         for iclu in self.cluster_info.cluster_id.values:
             yield self.get_cluster(iclu) 
 
-    def remove_duplicate_spikes(self,overwrite_phy = False):
+    def remove_duplicate_spikes(self,overwrite_phy = False,
+                                remove_cross_duplicates = False):
         from .postprocess import get_overlapping_spikes_indices
-        doubled = get_overlapping_spikes_indices(self.spike_times,self.spike_clusters, self.templates_raw, self.channel_positions)
+        doubled = get_overlapping_spikes_indices(
+            self.spike_times,
+            self.spike_clusters,
+            self.templates_raw,
+            self.channel_positions,
+            remove_across_units = remove_cross_duplicates)
         if not len(doubled):
             return
         self.spike_times = np.delete(self.spike_times,doubled)
