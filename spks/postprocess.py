@@ -89,5 +89,7 @@ def get_overlapping_spikes_indices(spike_times,
         # only delete once (unique) and export also the ones for inside each unit
         to_delete = np.unique(np.hstack([to_delete]+indices)) # this should probably be unsigned 64
     print("[get_overlapping_spikes_indices] - found {0} 'double counted' of {1} spikes".format(len(to_delete),len(spike_times)))
+    if type(to_delete) is list: # in case there are no spikes to delete
+        to_delete = np.array(to_delete)
     return to_delete.flatten().astype(np.uint64)
 
