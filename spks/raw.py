@@ -347,7 +347,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
         # get the number of jobs depending on the available cuda size
         if n_jobs is None:
             if torch.cuda.is_available():
-                n_jobs = int(np.ceil(torch.cuda.mem_get_info()[0]/(chunksize*3.9*32*len(channels))))
+                n_jobs = int(np.floor(torch.cuda.mem_get_info()[0]/(chunksize*4*32*len(channels))))
                 # This depends on which preprocessing is done.. For the fft we need more memory
             else:
                 n_jobs = 2
