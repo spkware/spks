@@ -364,9 +364,10 @@ Gets the sampling rate into all filters that need it and initializes filter func
             # free all gpu jobs
             pool(delayed(lambda x:free_gpu())(i) for i in range(n_jobs))
         # close all pools in case they are still running
+        free_gpu()
         out.flush()
         from joblib.externals.loky import get_reusable_executor
-        get_reusable_executor().shutdown(wait=True)    
+        get_reusable_executor().shutdown(wait=True)
 
         # save data
         nchannels = len(channels)
