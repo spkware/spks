@@ -24,7 +24,7 @@ def read_imro(imro):
                 'bank_id', 'reference_id', 'electrode_id']
     elif probe_type in [21]: # NP2 1 shank
         keys = ['channel_id',
-                'bank_mask', 'reference_id', 'electrode_id']
+                'bank_id', 'reference_id', 'electrode_id']
     elif probe_type in [1110]:
         keys = ['channel_id',
                 'bank_id', 'reference_id']
