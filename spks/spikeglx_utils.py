@@ -140,7 +140,7 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
         probe_type,nchannels,imro_table = read_imro(meta['imroTbl'])
         #imro = np.stack([[int(i) for i in m.split(' ')] for m in meta['imroTbl'][1:]])
         chans = imro_table.channel_id.values
-        banks = imro_table.bank_mask.values
+        banks = imro_table.bank_id.values
         shank = np.zeros(len(imro_table))
         if 'snsShankMap' in meta.keys():
             connected = np.stack([[int(i) for i in m.split(':')] for m in meta['snsShankMap'][1:]])[:,3]
