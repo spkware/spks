@@ -137,11 +137,11 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
             meta['imDatPrb_type'] = 0.0 # 3A/B probe
         probetype = int(meta['imDatPrb_type'])
         shank_sep = 250
-
-        imro = np.stack([[int(i) for i in m.split(' ')] for m in meta['imroTbl'][1:]])
-        chans = imro[:,0]
-        banks = imro[:,1]
-        shank = np.zeros(imro.shape[0])
+        probe_type,nchannels,imro_table = read_imro(meta['imroTbl'])
+        #imro = np.stack([[int(i) for i in m.split(' ')] for m in meta['imroTbl'][1:]])
+        chans = imro_table.channel_id.values
+        banks = imro_table.bank_mask.values
+        shank = np.zeros(len(imro_table))
         if 'snsShankMap' in meta.keys():
             connected = np.stack([[int(i) for i in m.split(':')] for m in meta['snsShankMap'][1:]])[:,3]
         else:
@@ -184,11 +184,11 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
                 pos[1:-1:2,0] = horz_sep   # even sites
                 pos[0:-1:2,1] = np.arange(nelec/2) * vert_sep
         elif probetype == 24 or probetype == 21:
-            electrode_idx = imro[:,2]
+            electrode_idx = imro_table.electrode_id.values
             if probetype == 24:
-                banks = imro[:,2]
-                shank = imro[:,1]
-                electrode_idx = imro[:,4]
+                banks = imro_table.bank_mask.values
+                shank = imro_table.shank_id.values
+                electrode_idx = imro_table.electrode_id.values
             nelec = 1280       # per shank; pattern repeats for the four shanks
             vert_sep  = 15     # in um
             horz_sep  = 32
