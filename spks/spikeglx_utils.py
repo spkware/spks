@@ -186,7 +186,7 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
         elif probetype == 24 or probetype == 21:
             electrode_idx = imro_table.electrode_id.values
             if probetype == 24:
-                banks = imro_table.bank_mask.values
+                banks = imro_table.bank_id.values
                 shank = imro_table.shank_id.values
                 electrode_idx = imro_table.electrode_id.values
             nelec = 1280       # per shank; pattern repeats for the four shanks
