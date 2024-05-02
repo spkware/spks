@@ -46,7 +46,7 @@ def firing_rate(sp,t_min = None,t_max=None):
     # firing rate is just the number of spikes divided by the time interval
     return float(np.sum((sp>=t_min) & (sp<=t_max)))/(t_max-t_min)
 
-def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0000, T = None):
+def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = None):
     """
     False positives because of *refractory period violations*.
 
@@ -74,7 +74,7 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0000, T = N
         List of timestamps in the same units as refractory_time and censored_time
     refractory_time: numeric value, 0.0015 
         estimated refractory time to compute violations to the refractory period.
-    censored_time: numeric value, 0
+    censored_time: numeric value, 0.0002
         time shorter than the refractory time to discard, for instance because of 
         errors in spike sorting (e.g. double counted spikes)  
     T: int, None
@@ -114,7 +114,7 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0000, T = N
     # contam_fraction = violation_rate/total_rate
     return  isi_contam
 
-def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0000, T = None):
+def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0002, T = None):
     """
     False positives because of *refractory period violations*.
 
