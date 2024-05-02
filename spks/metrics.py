@@ -102,12 +102,60 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0000, T = N
     if T is None:  # recording duration
         T = ts[-1]-ts[0]; # duration of the recording (here the time from the first to the last spike) 
         # in case we pass concatenated stuff but ideally this is an input to the function
-    isi_contam  = 1 - np.sqrt(1-n_v*(T-2*N*censored_time)/(N**2*(refractory_time - censored_time)))
+    a = 1-n_v*(T-2*N*censored_time)/(N**2*(refractory_time - censored_time))
+    if a<0:
+        a = np.nan
+    isi_contam  = 1 - np.sqrt(a)
 
     # the Hill method (used in ecephys) underestimates the contamination for contaminations above 0.2
     # violation_time = 2*N*(refractory_time - censored_time)
     # total_rate = N/(ts[-1]-ts[0])
     # violation_rate = n_v/violation_time
+    # contam_fraction = violation_rate/total_rate
+    return  isi_contam
+
+def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0000, T = None):
+    """
+    False positives because of *refractory period violations*.
+
+    In approximation, if gives the false positives rate as a fraction of the unit firing rate.  
+    The metric is described in Hill et al. 2011 DOI: https://doi.org/10.1523/JNEUROSCI.0971-11.2011
+
+    Parameters
+    ------------
+    sp : np.array
+        List of timestamps in the same units as refractory_time and censored_time
+    refractory_time: numeric value, 0.0015 
+        estimated refractory time to compute violations to the refractory period.
+    censored_time: numeric value, 0
+        time shorter than the refractory time to discard, for instance because of 
+        errors in spike sorting (e.g. double counted spikes)  
+    T: int, None
+        duration of the recording or observation (to compute the rate). By default it 
+        is taken as the time of the first and last spike. That is fair because if the 
+        unit was only firing during a fraction of the experiment, the estimate of false
+         positives would be lower if one takes the duration of the recording.  
+
+    Return
+    ------------
+    isi_contamination: float
+        Value between 0 and 1 - roughly. Units above 0.1 - 0.2 are likely too contaminated
+         to be called single units.     
+
+    Joao Couto - spks 2023
+    """
+
+    # sp are sorted since compute the ISI
+    N = len(ts)  # number of spikes
+    isi = np.diff(ts)  # inter-spike intervals
+    n_v = np.sum((isi <= refractory_time) & (isi>censored_time));   # violations between the censored time and the refractory time
+
+    if T is None:  # recording duration
+        T = ts[-1]-ts[0]; # duration of the recording (here the time from the first to the last spike)
+    # the Hill method (used in ecephys) underestimates the contamination for contaminations above 0.2
+    violation_time = 2*N*(refractory_time - censored_time)
+    total_rate = N/(T)
+    isi_contam = n_v/violation_time
     # contam_fraction = violation_rate/total_rate
     return  isi_contam
 
