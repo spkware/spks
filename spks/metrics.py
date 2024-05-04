@@ -103,8 +103,9 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = N
         T = ts[-1]-ts[0]; # duration of the recording (here the time from the first to the last spike) 
         # in case we pass concatenated stuff but ideally this is an input to the function
     a = 1-n_v*(T-2*N*censored_time)/(N**2*(refractory_time - censored_time))
-    if a<0:
-        a = np.nan
+    if a < 0:
+        return np.nan
+    
     isi_contam  = 1 - np.sqrt(a)
 
     # the Hill method (used in ecephys) underestimates the contamination for contaminations above 0.2
