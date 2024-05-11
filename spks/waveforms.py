@@ -4,7 +4,7 @@ from .utils import *
 ##########WAVEFORM METRICS AND ANALYSIS#################
 ########################################################
 
-def waveforms_position(waveforms,channel_positions):
+def waveforms_position(waveforms,channel_positions,active_electrode_threshold = 5):
     ''' 
     Calculates the position of a unit in a set of channels using the center of mass.
     TODO: Add support for other ways if calculating the position... 
@@ -28,17 +28,25 @@ def waveforms_position(waveforms,channel_positions):
 
     Joao Couto - spks 2023
     '''
-    peak_to_peak = (waveforms.max(axis = 1) - waveforms.min(axis = 1))
-    # the amplitude of each waveform is the max of the peak difference for all channels
-    amplitude = np.max(peak_to_peak,axis=1) 
-    # compute the center of mass (X,Y) of the waveforms
-    centerofmass = [peak_to_peak*pos for pos in channel_positions.T]
-    centerofmass = np.vstack([np.sum(t,axis =1 )/np.sum(peak_to_peak,axis = 1) 
-                                        for t in centerofmass]).T
-    # the peak channel is the index of the channel that has the largest deflection
-    peak_channels = np.argmax(np.abs(waveforms).max(axis = 1), axis = 1)
 
-    return centerofmass, peak_channels
+    nclusters,nsamples,nchannels = waveforms.shape
+    N = int(nsamples/4)
+    peak_to_peak = waveforms.max(axis=1) - waveforms.min(axis=1)
+    # get the threshold from the median_abs_deviation
+    channel_mad = np.median(peak_to_peak/0.6745,axis = 1)
+    active_electrodes = []
+    center_of_mass = []
+    peak_channels = []
+    for i,w in enumerate(peak_to_peak):
+        peak_channels.append(np.argmax(w)) # the peak channel is the index of the channel that has the largest deflection
+        idx = np.where(w>(channel_mad*active_electrode_threshold))[0]
+        active_electrodes.append(idx)
+        if not len(idx): # then there are no active channels..
+            center_of_mass.append([np.nan]*2)
+        # compute the center of mass (X,Y) of the waveforms using only significant peaks
+        com = [w[idx]*pos for pos in channel_positions[idx].T]
+        center_of_mass.append(np.sum(com,axis = 1)/np.sum(w[idx]))
+    return center_of_mass, peak_channels, active_electrodes 
 
 def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     '''
@@ -168,7 +176,7 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     return wavemetrics
 
 
-def estimate_active_channels(cluster_waveforms_mean,madthresh = 3):
+def estimate_active_channels(cluster_waveforms_mean,madthresh = 2.5):
     '''
     TODO
     '''
@@ -179,7 +187,7 @@ def estimate_active_channels(cluster_waveforms_mean,madthresh = 3):
             for mwave in cluster_waveforms_mean]
     
     # get the threshold from the median_abs_deviation
-    channel_mad = mad(peak_amp) 
+    channel_mad = np.median(peak_amp)/0.6745
     # "active" channels
     activeidx = []
     for p in peak_amp:
