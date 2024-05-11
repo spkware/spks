@@ -47,7 +47,7 @@ def firing_rate(sp,t_min = None,t_max=None):
     return float(np.sum((sp>=t_min) & (sp<=t_max)))/(t_max-t_min)
 
 def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = None):
-    """
+    r"""
     False positives because of *refractory period violations*.
 
     In approximation, if gives the false positives rate as a fraction of the unit firing rate.  
