@@ -39,7 +39,7 @@ def list_spikeglx_binary_paths(subject_dir):
     # probe number is attached to imec
     prbs = []
     for p in bin_paths:
-        prbs.append(re.search('\s*.imec(\d).\s*',str(p)).group())
+        prbs.append(re.search(r'\s*.imec(\d).\s*',str(p)).group())
     # put each probe in a list
     all_probe_dirs = []
     for probe in np.sort(np.unique(prbs)):
