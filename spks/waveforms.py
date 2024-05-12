@@ -4,7 +4,7 @@ from .utils import *
 ##########WAVEFORM METRICS AND ANALYSIS#################
 ########################################################
 
-def waveforms_position(waveforms,channel_positions,active_electrode_threshold = 5):
+def waveforms_position(waveforms,channel_positions, active_electrode_threshold = 3):
     ''' 
     Calculates the position of a unit in a set of channels using the center of mass.
     TODO: Add support for other ways if calculating the position... 
@@ -39,7 +39,7 @@ def waveforms_position(waveforms,channel_positions,active_electrode_threshold = 
     peak_channels = []
     for i,w in enumerate(peak_to_peak):
         peak_channels.append(np.argmax(w)) # the peak channel is the index of the channel that has the largest deflection
-        idx = np.where(w>(channel_mad*active_electrode_threshold))[0]
+        idx = np.where(w>(channel_mad[i]*active_electrode_threshold))[0]
         active_electrodes.append(idx)
         if not len(idx): # then there are no active channels..
             center_of_mass.append([np.nan]*2)
