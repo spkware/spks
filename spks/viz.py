@@ -114,7 +114,7 @@ def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_s
 def interactive_cluster_waveforms(sp):
     fig = plt.figure()
     ax_waves = fig.add_axes([0.1,0.1,0.8,0.8])
-    cluster_positions,principal_channel = waveforms_position(sp.cluster_waveforms_mean,sp.channel_positions)
+    cluster_positions,principal_channel,active_channels = waveforms_position(sp.cluster_waveforms_mean,sp.channel_positions)
     electrodes = []
     for p in principal_channel:
         electrodes.append(np.where(np.array([np.linalg.norm(c - sp.channel_positions[p]) for c in sp.channel_positions])<100)[0])

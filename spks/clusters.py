@@ -398,7 +398,7 @@ class Clusters():
             templates_amplitude[~np.isfinite(templates_amplitude)] = np.nanmean(templates_amplitude)
             # compute the center of mass (X,Y) of the templates
             from .waveforms import waveforms_position
-            self.template_position,self.template_channel,electrode_channels = waveforms_position(
+            self.template_position,self.template_channel, electrode_channels = waveforms_position(
                 self.templates_raw, self.channel_positions)
             # get the spike positions and amplitudes from the average templates
             self.spike_amplitudes = np.take(templates_amplitude,

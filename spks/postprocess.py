@@ -63,7 +63,7 @@ def get_overlapping_spikes_indices(spike_times,
     clus = np.delete(clus,to_delete)
 
     # need the waveform amplitude and the location to know if to keep or discard
-    position, _ = waveforms_position(mwaves,channel_positions)
+    position, _, _ = waveforms_position(mwaves,channel_positions)
     peak_to_peak = (mwaves.max(axis = 1) - mwaves.min(axis = 1)).max(axis=1)
     duplicated = []
     

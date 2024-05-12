@@ -43,6 +43,7 @@ def waveforms_position(waveforms,channel_positions, active_electrode_threshold =
         active_electrodes.append(idx)
         if not len(idx): # then there are no active channels..
             center_of_mass.append([np.nan]*2)
+            continue
         # compute the center of mass (X,Y) of the waveforms using only significant peaks
         com = [w[idx]*pos for pos in channel_positions[idx].T]
         center_of_mass.append(np.sum(com,axis = 1)/np.sum(w[idx]))
@@ -52,7 +53,7 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     '''
     Computes the spike waveform metrics for a single waveform
 
-    wavemetrics = waveforms_position(waveform,npre,srate,upsample_factor = 100)
+    wavemetrics = compute_waveform_metrics(waveform,npre,srate,upsample_factor = 100)
 
     Parameters
     ------------
