@@ -267,6 +267,9 @@ time periods (the mean so we can compare units recorded for differnet time durat
         t = spdepths[bins == i+1]
         if len(t)>min_spikes:
             med_depths[i] = np.median(t)
+    med_depths = med_depths[np.isfinite(med_depths)]
+    if len(med_depths) < 3: # in case there aren't enough spikes
+        return np.nan, np.nan
     max_depth_range = np.nanmax(med_depths) - np.nanmin(med_depths)
     mean_depth_fluctuation = np.nanmean(np.abs(np.diff(med_depths)))
     return max_depth_range,mean_depth_fluctuation
