@@ -1,5 +1,7 @@
 import pylab as plt
 import numpy as np
+from .utils import discard_nans
+from .event_aligned import align_raster_to_event
 
 colors = ['#000000',
           '#d62728',
@@ -77,7 +79,7 @@ def plot_event_aligned_raster(event_times, spike_times, sorting='', pre_seconds=
         event_times = event_times[np.argsort(first_spike_deltas)]
         ax.set_ylabel('Sorted by time to first spike')
 
-    rasters = rasterize_to_event(event_times, spike_times, pre_seconds, post_seconds)
+    rasters = align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds)
     for i, event_raster in enumerate(rasters):
         ax.vlines(event_raster,(offset+i),
                   (offset+i+1), color=color, **kwargs)
@@ -92,7 +94,7 @@ def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_s
         ax = plt.gca()
     n_events = len(event_times)
 
-    rasters = rasterize_to_event(event_times, spike_times, pre_seconds, post_seconds)
+    rasters = align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds)
     x = []
     ymin =[] 
     ymax = []
@@ -104,8 +106,8 @@ def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_s
     ymin = np.array(ymin)
     ymax = np.array(ymax)
     #ax.vlines(x, ymin, ymax, color=color, **kwargs)
-    ax.scatter(x, ymin, s=.2, linewidths=.2, marker='|', color=color, **kwargs) #TODO: adaptive s and linewidth kwargs
-    #ax.scatter(x, ymin, s=5, linewidths=5, marker='|', color=color, **kwargs)
+    #ax.scatter(x, ymin, s=.2, linewidths=.2, marker='|', color=color, **kwargs) #TODO: adaptive s and linewidth kwargs
+    ax.scatter(x, ymin, s=5, linewidths=5, marker='|', color=color, **kwargs)
     ax.set_xlabel('Time relative to event (s)')
     #ax.set_ylim((np.min(ymin),np.max(ymax)))
     #ax.set_xlim((np.min(x), np.max(x)))
