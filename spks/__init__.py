@@ -7,3 +7,4 @@ from .waveforms import *
 from .raw import *
 from .viz import *
 from .sync import *
+from .event_aligned import *
