@@ -16,7 +16,9 @@ colors = ['#000000',
 def plot_drift_raster(spike_times,
                       spike_depths,
                       spike_amplitudes,
-                      n_spikes_to_plot = 100000,**kwargs):
+                      n_spikes_to_plot = 100000,
+                      markersize = 0.03,
+                      **kwargs):
     '''
     Plot a drift raster: scatter of spike times versus depths, the amplitude is the color
     
@@ -35,7 +37,7 @@ def plot_drift_raster(spike_times,
     
 
     plt.scatter(spike_times[idx],
-                spike_depths[idx], 0.03,
+                spike_depths[idx], markersize,
                 spike_amplitudes[idx],**kwargs)
     # set the axis
     plt.axis([0,

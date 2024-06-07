@@ -9,7 +9,7 @@ Electrophysiology analysis package for large-scale electrophysiology
 
 ### Instalation
 
-We tipically install ``spks`` in environments with other packages so kept dependencies to a minimum
+We typically install ``spks`` in environments with other packages so kept dependencies to a minimum
 
 #### Dependencies:
    - ``numpy``      - array handling and loading 
@@ -36,10 +36,3 @@ Recommended to avoid interfering with other packages or for users new to python.
 2) create a new environment from a terminal ``conda create -n spks`` and activate it ``conda activate spks``
 3) install ``torch`` in the environment ``conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia`` and then install the dependencies ``conda install pandas h5py natsort tqdm scipy joblib jupyter matplotlib`` you can use other versions of [pytorch](https://pytorch.org/get-started/previous-versions) depending on which graphics driver is installed. A gpu is not required.
 4) install ``spks`` using pip ``pip install git+https://github.com/spkware/spks.git@main``
-
-
-
-
-
-
-
