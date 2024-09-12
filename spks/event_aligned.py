@@ -86,17 +86,17 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
                                 pre_seconds,
                                 post_seconds)
 
-    #pre_event_timebins = np.arange(-pre_seconds, 0, binwidth_s)
-    #post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
-    #timebin_edges = np.append(pre_event_timebins, post_event_timebins)
+    pre_event_timebins = np.arange(-pre_seconds, 0, binwidth_s)
+    post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
+    timebin_edges = np.append(pre_event_timebins, post_event_timebins)
 
     #construct timebins separately for pre and post so that the alignment event occurs at the center of a timebin
-    pre_event_timebins = np.arange(-pre_seconds+binwidth_s/2, binwidth_s/2, binwidth_s)
-    post_event_timebins = np.arange(binwidth_s/2, post_seconds+binwidth_s/2, binwidth_s)
-    timebin_edges = np.concatenate((pre_event_timebins,
-                                    post_event_timebins))
+    #pre_event_timebins = np.arange(-pre_seconds+binwidth_s/2, binwidth_s/2, binwidth_s)
+    #post_event_timebins = np.arange(binwidth_s/2, post_seconds+binwidth_s/2, binwidth_s)
+    #timebin_edges = np.concatenate((pre_event_timebins,
+    #                                post_event_timebins))
 
-    event_index = pre_event_timebins.size - 1 # index of the alignment event in psth_matrix
+    event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
 
     psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) #/ binwidth_s # divide by binwidth to get a rate rather than count
     return psth_matrix, timebin_edges, event_index
