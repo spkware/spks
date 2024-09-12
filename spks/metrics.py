@@ -50,12 +50,9 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = N
     r"""
     False positives because of *refractory period violations*.
 
-    In approximation, if gives the false positives rate as a fraction of the unit firing rate.  
-    The metric is described in Hill et al. 2011 DOI: https://doi.org/10.1523/JNEUROSCI.0971-11.2011
-
-    This function is adapted as described in Llobet et al. 2022 which reports a 
-    generalization of the method in Hill et al 2011 to account also for false positives coming
-    from other sources, not only other units.
+    This function is adapted as described in Llobet et al. 2022 (DOI 10.1101/2022.02.08.479192) 
+    which reports a generalization of the method in Hill et al 2011 to account also for false 
+    positives coming from other sources, not only other units.
 
     We followed equation 3 in Llobet et al. 2022, and assumed :math:`n_v` to be the number of 
     spike pairs that violate the refractory period. We try to keep the names similar in the 
@@ -67,6 +64,8 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = N
     :math:`n_v` is the number of isi_violations, :math:`N` is the total number of spikes, 
     :math:`T` is the recording/observation duration and :math:`t_r` is the time of the 
     effective refractory period, here *refractory_period* - *censored_time*
+
+See also Hill et al. 2011 DOI: https://doi.org/10.1523/JNEUROSCI.0971-11.2011
 
     Parameters
     ------------
@@ -97,7 +96,7 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = N
     isi = np.diff(ts)  # inter-spike intervals
     n_v = np.sum((isi <= refractory_time) & (isi>censored_time));   # violations between the censored time and the refractory time
 
-    # this is the method/equation described in Lobet et al. 2022 - https://doi.org/10.1101/2022.02.08.479192
+    # this is the method/equation described in Llobet et al. 2022 - https://doi.org/10.1101/2022.02.08.479192
     # I assumed n_v is the number of contaminated isis in equation 3
     if T is None:  # recording duration
         T = ts[-1]-ts[0]; # duration of the recording (here the time from the first to the last spike) 
@@ -108,11 +107,6 @@ def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = N
     
     isi_contam  = 1 - np.sqrt(a)
 
-    # the Hill method (used in ecephys) underestimates the contamination for contaminations above 0.2
-    # violation_time = 2*N*(refractory_time - censored_time)
-    # total_rate = N/(ts[-1]-ts[0])
-    # violation_rate = n_v/violation_time
-    # contam_fraction = violation_rate/total_rate
     return  isi_contam
 
 def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0002, T = None):
@@ -153,7 +147,7 @@ def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0002, 
 
     if T is None:  # recording duration
         T = ts[-1]-ts[0]; # duration of the recording (here the time from the first to the last spike)
-    # the Hill method (used in ecephys) underestimates the contamination for contaminations above 0.2
+    # the Hill method (as in ecephys) underestimates the contamination for contaminations above 0.2
     violation_time = 2*N*(refractory_time - censored_time)
     total_rate = N/(T)
     isi_contam = n_v/violation_time
