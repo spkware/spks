@@ -1,4 +1,5 @@
 from .utils import *
+from collections.abc import Iterable
 
 def get_triggered_unit_spikes(ts,events,tpre = 1,tpost = 1):
     trig = []
@@ -58,21 +59,26 @@ def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
         a list or numpy array of event times to be aligned to
     spike_times : list or ndarray
         a list spike times for one cluster
-    pre_seconds : float
+    pre_seconds : float, list
         grab _ seconds before event_times for alignment, by default 1
-    post_seconds : float
+        can also be a list of different pre_seconds for each event
+    post_seconds : float, list
         grab _ seconds after event_times for alignment, by default 2
+        can also be a list of different pre_seconds for each event
 
     Returns
     -------
     list
         a list of aligned rasters for each event_times
     """    
-    #TODO: add option to pass a list maximum pre and post times, so we can truncate data that bleeds into other events. Useful for multiple event alignment. 
     event_rasters = []
+    pre_iterable = isinstance(pre_seconds, Iterable)
+    post_iterable = isinstance(post_seconds, Iterable)
     for i, event_time in enumerate(event_times):
         relative_spiketimes = spike_times - event_time
-        spks = relative_spiketimes[np.logical_and(relative_spiketimes <= post_seconds, relative_spiketimes >= -pre_seconds)]
+        pre = pre_seconds[i] if pre_iterable else pre_seconds
+        post = post_seconds[i] if post_iterable else post_seconds
+        spks = relative_spiketimes[np.logical_and(relative_spiketimes <= post, relative_spiketimes >= -pre)]
         event_rasters.append(np.array(spks))
     return event_rasters
 
@@ -85,16 +91,9 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
                                 spike_times,
                                 pre_seconds,
                                 post_seconds)
-
     pre_event_timebins = np.arange(-pre_seconds, 0, binwidth_s)
     post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
     timebin_edges = np.append(pre_event_timebins, post_event_timebins)
-
-    #construct timebins separately for pre and post so that the alignment event occurs at the center of a timebin
-    #pre_event_timebins = np.arange(-pre_seconds+binwidth_s/2, binwidth_s/2, binwidth_s)
-    #post_event_timebins = np.arange(binwidth_s/2, post_seconds+binwidth_s/2, binwidth_s)
-    #timebin_edges = np.concatenate((pre_event_timebins,
-    #                                post_event_timebins))
 
     event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
 
