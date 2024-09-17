@@ -99,3 +99,35 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
 
     psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) #/ binwidth_s # divide by binwidth to get a rate rather than count
     return psth_matrix, timebin_edges, event_index
+
+def compute_spike_count_truncated(event_times, spike_times, max_pre_seconds, max_post_seconds, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
+    '''similar to compute_spike_count but takes a list of pre and post seconds, as well as a max pre and post time.
+    This allows truncation of the psth_matrix, where values that are not within the pre and post time are set to nan'''
+    binwidth_s = binwidth_ms/1000
+    event_times = discard_nans(event_times)
+    rasters = align_raster_to_event(event_times,
+                                    spike_times,
+                                    pre_seconds,
+                                    post_seconds)
+
+    pre_event_timebins = np.arange(-max_pre_seconds, 0, binwidth_s)
+    post_event_timebins = np.arange(0, max_post_seconds+binwidth_s, binwidth_s)
+    timebin_edges = np.append(pre_event_timebins, post_event_timebins)
+    event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
+    psth_matrix = np.empty((len(rasters), len(timebin_edges)-1))
+    psth_matrix[:] = np.nan
+    for i,raster in enumerate(rasters):
+        temp = binary_spikes([raster], timebin_edges, kernel=kernel)
+        #start_ind = np.where(timebin_edges > -pre_seconds[i])[0][0] - 1
+        #stop_ind = np.where(timebin_edges < post_seconds[i])[0][-1]
+        aa = timebin_edges > -pre_seconds[i]
+        bb = timebin_edges < post_seconds[i]
+        if np.any(aa) and np.any(bb):
+            start_ind = np.where(aa)[0][0] - 1
+            stop_ind = np.where(bb)[0][-1]
+            psth_matrix[i, start_ind:stop_ind] = temp[0,start_ind:stop_ind]
+        else:
+            #print('event outside of time range, skipping trial')
+            continue
+
+    return psth_matrix, timebin_edges, event_index
