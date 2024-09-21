@@ -91,8 +91,9 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
                                 spike_times,
                                 pre_seconds,
                                 post_seconds)
-    pre_event_timebins = np.arange(-pre_seconds, 0, binwidth_s)
-    post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
+    pre_event_timebins = -np.arange(0, pre_seconds, binwidth_s)[1:][::-1]
+    #post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
+    post_event_timebins = np.arange(0, post_seconds, binwidth_s)
     timebin_edges = np.append(pre_event_timebins, post_event_timebins)
 
     event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
