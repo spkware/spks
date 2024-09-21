@@ -253,17 +253,19 @@ def binary_spikes(spks,edges,kernel = None):
     Modified by Max Melin
     '''
     if kernel is not None:
-        binwidth_s = np.mean(np.diff(edges))
-        n_pad = kernel.size / 2
+        #binwidth_s = np.mean(np.diff(edges))
+        #n_pad = kernel.size / 2
 
-        start_pad = np.arange(-binwidth_s * n_pad, 0, binwidth_s) + edges[0]
-        end_pad = np.arange(0, binwidth_s * n_pad, binwidth_s) + edges[-1]
+        #start_pad = np.arange(-binwidth_s * n_pad, 0, binwidth_s) + edges[0]
+        #end_pad = np.arange(0, binwidth_s * n_pad, binwidth_s) + edges[-1]
 
         #padded_edges = np.concatenate((start_pad[:-1], edges, end_pad[1:]))
-        padded_edges = np.concatenate((start_pad, edges, end_pad[1:]))
+        #padded_edges = np.concatenate((start_pad, edges, end_pad[1:]))
 
-        bins = [np.histogram(sp,padded_edges)[0] for sp in spks]
-        bins = [np.convolve(a,kernel,'valid') for a in bins] #'valid' avoids edge artifacts
+        #bins = [np.histogram(sp,padded_edges)[0] for sp in spks]
+        #bins = [np.convolve(a,kernel,'valid') for a in bins] #'valid' avoids edge artifacts
+        bins = [np.histogram(sp,edges)[0] for sp in spks]
+        bins = [np.convolve(a,kernel,'same') for a in bins] #'valid' avoids edge artifacts
     else:
         bins = [np.histogram(sp,edges)[0] for sp in spks]
     return np.vstack(bins)
