@@ -104,7 +104,10 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
     timebin_edges = np.append(pre_event_timebins, post_event_timebins)
     event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
 
-    psth_matrix = psth_matrix[:, valid_inds[:-1]][:,:-1] # strip off pad from psth_matrix
+    psth_matrix = psth_matrix[:, valid_inds[:-1]] # strip off pad from psth_matrix
+    if timebin_edges.size - psth_matrix.shape[1] == 2: # handle case of odd bin count 
+        psth_matrix = psth_matrix[:,:-1]
+
     return psth_matrix, timebin_edges, event_index
 
 def population_peth(all_spike_times, alignment_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
