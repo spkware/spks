@@ -107,6 +107,14 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
     psth_matrix = psth_matrix[:, valid_inds[:-1]][:,:-1] # strip off pad from psth_matrix
     return psth_matrix, timebin_edges, event_index
 
+def population_peth(all_spike_times, alignment_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
+    pop_peth = []
+    for spks in all_spike_times:
+        peth, timebin_edges, event_index = compute_spike_count(alignment_times, spks, pre_seconds, post_seconds, binwidth_ms, pad=pad, kernel=kernel)
+        pop_peth.append(peth)
+    pop_peth = np.stack(pop_peth) # shape is [n_neurons, n_trials, n_timebins]
+    return pop_peth, timebin_edges, event_index
+
 def compute_spike_count_truncated(event_times, spike_times, max_pre_seconds, max_post_seconds, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
     '''similar to compute_spike_count but takes a list of pre and post seconds, as well as a max pre and post time.
     This allows truncation of the psth_matrix, where values that are not within the pre and post time are set to nan'''
