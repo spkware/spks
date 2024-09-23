@@ -82,23 +82,29 @@ def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
         event_rasters.append(np.array(spks))
     return event_rasters
 
-def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
+def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
     '''compute the PETH for one neuron'''
     binwidth_s = binwidth_ms/1000
     event_times = discard_nans(event_times) 
     
     rasters = align_raster_to_event(event_times, 
                                 spike_times,
-                                pre_seconds,
-                                post_seconds)
-    pre_event_timebins = -np.arange(0, pre_seconds, binwidth_s)[1:][::-1]
-    #post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
-    post_event_timebins = np.arange(0, post_seconds, binwidth_s)
+                                pre_seconds+pad,
+                                post_seconds+pad)
+    pre_event_timebins = -np.arange(0, pre_seconds+pad, binwidth_s)[1:][::-1]
+    post_event_timebins = np.arange(0, post_seconds+pad, binwidth_s)
     timebin_edges = np.append(pre_event_timebins, post_event_timebins)
 
+    psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) #/ binwidth_s # divide by binwidth to get a rate rather than count
+    
+    # recreate timebins without the pad
+    pre_event_timebins = -np.arange(0, pre_seconds, binwidth_s)[1:][::-1]
+    post_event_timebins = np.arange(0, post_seconds, binwidth_s)
+    timebin_edges = np.append(pre_event_timebins, post_event_timebins)
     event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
 
-    psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) #/ binwidth_s # divide by binwidth to get a rate rather than count
+    valid_inds = (timebin_edges > -pre_seconds) & (timebin_edges < post_seconds)
+    psth_matrix = psth_matrix[:, valid_inds[:-1]][:,:-1] # strip off pad from psth_matrix
     return psth_matrix, timebin_edges, event_index
 
 def compute_spike_count_truncated(event_times, spike_times, max_pre_seconds, max_post_seconds, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
