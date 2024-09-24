@@ -105,7 +105,7 @@ def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, bin
     event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
 
     psth_matrix = psth_matrix[:, valid_inds[:-1]] # strip off pad from psth_matrix
-    if timebin_edges.size - psth_matrix.shape[1] == 2: # handle case of odd bin count 
+    if timebin_edges.size == psth_matrix.shape[1]: # handle case of odd bin count 
         psth_matrix = psth_matrix[:,:-1]
 
     return psth_matrix, timebin_edges, event_index
