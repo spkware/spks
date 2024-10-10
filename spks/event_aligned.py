@@ -1,4 +1,4 @@
-from .utils import *
+from .utils import np, partial, Pool, tqdm, discard_nans, binary_spikes # avoid "*" import here. Torch and other imports with the gpu don't play well with the cluster.
 from collections.abc import Iterable
 
 def get_triggered_unit_spikes(ts,events,tpre = 1,tpost = 1):
