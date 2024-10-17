@@ -287,9 +287,7 @@ def binary_spikes(spks,edges,kernel = None):
     '''
     
     if kernel is not None:
-        binwidth_s = np.mean(np.diff(edges))
         n_pad = int(kernel.size / 2)
-
         bins = [np.histogram(sp,edges)[0] for sp in spks]
         bins = [np.convolve(np.pad(a,n_pad,'reflect'),kernel,'same')[n_pad:-n_pad] for a in bins] # padding deals with artifacts
     else:

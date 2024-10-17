@@ -1,4 +1,4 @@
-from .utils import *
+from .utils import np, partial, Pool, tqdm, discard_nans, binary_spikes # avoid "*" import here. Torch and other imports with the gpu don't play well with the cluster.
 from collections.abc import Iterable
 
 def get_triggered_unit_spikes(ts,events,tpre = 1,tpost = 1):
@@ -82,23 +82,41 @@ def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
         event_rasters.append(np.array(spks))
     return event_rasters
 
-def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
+def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
     '''compute the PETH for one neuron'''
     binwidth_s = binwidth_ms/1000
     event_times = discard_nans(event_times) 
     
     rasters = align_raster_to_event(event_times, 
                                 spike_times,
-                                pre_seconds,
-                                post_seconds)
-    pre_event_timebins = np.arange(-pre_seconds, 0, binwidth_s)
-    post_event_timebins = np.arange(0, post_seconds+binwidth_s, binwidth_s)
+                                pre_seconds+pad,
+                                post_seconds+pad)
+    pre_event_timebins = -np.arange(0, pre_seconds+pad, binwidth_s)[1:][::-1]
+    post_event_timebins = np.arange(0, post_seconds+pad, binwidth_s)
     timebin_edges = np.append(pre_event_timebins, post_event_timebins)
 
+    psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) #/ binwidth_s # divide by binwidth to get a rate rather than count
+    
+    # recreate timebins without the pad
+    valid_inds = (timebin_edges > -pre_seconds) & (timebin_edges < post_seconds)
+    pre_event_timebins = -np.arange(0, pre_seconds, binwidth_s)[1:][::-1]
+    post_event_timebins = np.arange(0, post_seconds, binwidth_s)
+    timebin_edges = np.append(pre_event_timebins, post_event_timebins)
     event_index = pre_event_timebins.size # index of the alignment event in psth_matrix
 
-    psth_matrix = binary_spikes(rasters, timebin_edges, kernel=kernel) #/ binwidth_s # divide by binwidth to get a rate rather than count
+    psth_matrix = psth_matrix[:, valid_inds[:-1]] # strip off pad from psth_matrix
+    if timebin_edges.size == psth_matrix.shape[1]: # handle case of odd bin count 
+        psth_matrix = psth_matrix[:,:-1]
+
     return psth_matrix, timebin_edges, event_index
+
+def population_peth(all_spike_times, alignment_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
+    pop_peth = []
+    for spks in all_spike_times:
+        peth, timebin_edges, event_index = compute_spike_count(alignment_times, spks, pre_seconds, post_seconds, binwidth_ms, pad=pad, kernel=kernel)
+        pop_peth.append(peth)
+    pop_peth = np.stack(pop_peth) # shape is [n_neurons, n_trials, n_timebins]
+    return pop_peth, timebin_edges, event_index
 
 def compute_spike_count_truncated(event_times, spike_times, max_pre_seconds, max_post_seconds, pre_seconds, post_seconds, binwidth_ms=25, kernel=None):
     '''similar to compute_spike_count but takes a list of pre and post seconds, as well as a max pre and post time.
