@@ -245,30 +245,56 @@ def alpha_function(N, amplitude = 1, t_rise = 2, t_decay = 250, srate = 1000.,no
     return kernel
 
 def binary_spikes(spks,edges,kernel = None):
-    ''' Create a vector of binary spikes. Optionally convolve with a kernel
+    ''' 
+    """
+    Create a vector of binary spikes, optionally convolved with a kernel.
+
+    Parameters:
+    -----------
+    spks : list of array-like
+        List of spike times for each unit.
+    edges : array-like
+        Time bin edges for discretizing spikes.
+    kernel : array-like, optional
+        Kernel to convolve with binary spike trains. If None, no convolution is performed.
+        Note: When using a kernel, the function pads the spike trains to minimize edge effects.
+
+    Returns:
+    --------
+    numpy.ndarray
+        2D array of binary or convolved spike trains. Each row corresponds to a unit.
+
+    Examples:
+    ---------
+    # Basic binary spikes
     binsize = 0.001
-    edges = np.arange(0,5,binsize) this should be in seconds
-    bspks = binary_spikes(spks,edges)/binsize
-    Joao Couto - March 2016
-    Modified by Max Melin
+    edges = np.arange(0, 5, binsize)
+    bspks = binary_spikes(spks, edges) / binsize
+    ---------
+    # Convolved with alpha function kernel
+    binsize = 0.001
+    t_decay = 0.025
+    t_rise = 0.001
+    decay = t_decay / binsize
+    kern = alpha_function(int(decay * 15), t_rise=t_rise, t_decay=decay, srate=1./binsize)
+    edges = np.arange(0, 5, binsize)
+    bspks = binary_spikes(spks, edges, kernel=kern) / binsize
+    ---------
+    # Correct timing for plotting
+    time = edges[:-1] + np.diff(edges[:2]) / 2
+
+    Joao Couto - March 2016 , Modified by Max Melin
     '''
+    
     if kernel is not None:
         binwidth_s = np.mean(np.diff(edges))
-        n_pad = kernel.size / 2
+        n_pad = int(kernel.size / 2)
 
-        start_pad = np.arange(-binwidth_s * n_pad, 0, binwidth_s) + edges[0]
-        end_pad = np.arange(0, binwidth_s * n_pad, binwidth_s) + edges[-1]
-
-        #padded_edges = np.concatenate((start_pad[:-1], edges, end_pad[1:]))
-        padded_edges = np.concatenate((start_pad, edges, end_pad[1:]))
-
-        bins = [np.histogram(sp,padded_edges)[0] for sp in spks]
-        bins = [np.convolve(a,kernel,'valid') for a in bins] #'valid' avoids edge artifacts
+        bins = [np.histogram(sp,edges)[0] for sp in spks]
+        bins = [np.convolve(np.pad(a,n_pad,'reflect'),kernel,'same')[n_pad:-n_pad] for a in bins] # padding deals with artifacts
     else:
         bins = [np.histogram(sp,edges)[0] for sp in spks]
     return np.vstack(bins)
-
-
 
 from scipy.interpolate import interp2d
 from scipy.signal import ellip, filtfilt,butter
