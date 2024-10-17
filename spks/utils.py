@@ -237,7 +237,7 @@ def alpha_function(N, amplitude = 1, t_rise = 2, t_decay = 250, srate = 1000.,no
     fun_max  = (t_rise*t_decay/(t_decay-t_rise)) * np.log(t_decay-t_rise);
     normalization_factor = 1; #%(exp(-fun_max/t_rise) - exp(-fun_max/t_decay))/(t_rise-t_decay);
     ii = np.arange(0,N)
-    kernel = np.hstack([np.zeros(N),
+    kernel = np.hstack([np.zeros(N-1),
                         amplitude*(1.0/(normalization_factor*(t_decay-t_rise))) * (np.exp(-((ii/srate)/t_decay))
                                                                                    - np.exp(-(ii/srate)/t_rise))])
     if norm:
