@@ -288,7 +288,7 @@ class Clusters():
         if not self.cluster_waveforms_mean is None:  # compute only if there are mean waveforms
             # compute the position of each cluster and the principal channel
             from .waveforms import waveforms_position
-            self.cluster_position, self.cluster_channel,active_electrodes = waveforms_position(
+            self.cluster_position, self.cluster_channel, active_electrodes = waveforms_position(
                 self.cluster_waveforms_mean,
                 self.channel_positions)
             self.cluster_info['depth'] = self.cluster_position[:,1]

@@ -88,7 +88,7 @@ def plot_event_aligned_raster(event_times, spike_times, sorting='', pre_seconds=
     ax.set_xlabel('Time relative to event (s)')
     ax.set_ylim(ax.get_ylim()[::-1]) # flip the y axis
 
-def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_seconds=2, offset=0, ax=None, color='black', **kwargs):
+def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_seconds=2, offset=0, s=5, linewidths=5, ax=None, color='black', **kwargs):
     """faster version of plot_event_aligned_raster for SpikeViewer"""
     #TODO: add subsample option
     event_times = discard_nans(event_times)
@@ -108,8 +108,7 @@ def plot_event_based_raster_fast(event_times, spike_times, pre_seconds=1, post_s
     ymin = np.array(ymin)
     ymax = np.array(ymax)
     #ax.vlines(x, ymin, ymax, color=color, **kwargs)
-    #ax.scatter(x, ymin, s=.2, linewidths=.2, marker='|', color=color, **kwargs) #TODO: adaptive s and linewidth kwargs
-    ax.scatter(x, ymin, s=5, linewidths=5, marker='|', color=color, **kwargs)
+    ax.scatter(x, ymin, marker='|', color=color, **kwargs) #TODO: adaptive s and linewidth kwargs
     ax.set_xlabel('Time relative to event (s)')
     #ax.set_ylim((np.min(ymin),np.max(ymax)))
     #ax.set_xlim((np.min(x), np.max(x)))

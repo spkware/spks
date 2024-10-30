@@ -47,7 +47,7 @@ def waveforms_position(waveforms,channel_positions, active_electrode_threshold =
         # compute the center of mass (X,Y) of the waveforms using only significant peaks
         com = [w[idx]*pos for pos in channel_positions[idx].T]
         center_of_mass.append(np.sum(com,axis = 1)/np.sum(w[idx]))
-    return center_of_mass, peak_channels, active_electrodes 
+    return np.array(center_of_mass), np.array(peak_channels), active_electrodes 
 
 def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     '''
