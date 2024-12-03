@@ -4,11 +4,15 @@ from .utils import *
 ##########WAVEFORM METRICS AND ANALYSIS#################
 ########################################################
 
-def waveforms_position(waveforms,channel_positions, active_electrode_threshold = 3):
+def waveforms_position(waveforms,channel_positions, 
+                       active_electrode_threshold = 3,
+                       max_waveform_extent = 100):
     ''' 
     Calculates the position of a unit in a set of channels using the center of mass.
-    TODO: Add support for other ways if calculating the position... 
-    Or maybe wait until there is a case where this doesn't work?
+    Considers only electrodes that have over active_electrode_threshold (3) mad and 
+    are within max_waveform_extent (100um) from the principal (max) electrode.
+
+    Using the max_waveform_extent is useful when there is noise in the recording. 
 
     centerofmass,peak_channels = waveforms_position(waveforms,channel_positions)
 
@@ -29,17 +33,19 @@ def waveforms_position(waveforms,channel_positions, active_electrode_threshold =
     Joao Couto - spks 2023
     '''
 
-    nclusters,nsamples,nchannels = waveforms.shape
+    nclusters, nsamples, nchannels = waveforms.shape
     N = int(nsamples/4)
     peak_to_peak = waveforms.max(axis=1) - waveforms.min(axis=1)
     # get the threshold from the median_abs_deviation
-    channel_mad = np.median(peak_to_peak/0.6745,axis = 1)
+    channel_mad = np.median(peak_to_peak/0.6745, axis = 1)
     active_electrodes = []
     center_of_mass = []
     peak_channels = []
     for i,w in enumerate(peak_to_peak):
         peak_channels.append(np.argmax(w)) # the peak channel is the index of the channel that has the largest deflection
-        idx = np.where(w>(channel_mad[i]*active_electrode_threshold))[0]
+        idx = np.where(
+            (w>(channel_mad[i]*active_electrode_threshold)) & 
+            (np.linalg.norm(channel_positions - channel_positions[np.argmax(w)],axis = 1) < max_waveform_extent))[0]
         active_electrodes.append(idx)
         if not len(idx): # then there are no active channels..
             center_of_mass.append([np.nan]*2)
@@ -179,7 +185,7 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
 
 def estimate_active_channels(cluster_waveforms_mean,madthresh = 2.5):
     '''
-    TODO
+    Estimates the active channels by comparing the average waveform peak 
     '''
     nclusters,nsamples,nchannels = cluster_waveforms_mean.shape
     N = int(nsamples/3)
