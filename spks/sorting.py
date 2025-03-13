@@ -226,36 +226,24 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
                         data_dir = foldername)
         if not motion_correction:
                 settings['nblocks'] = 0
-        (ops,
-         st,
-         clu,
-         tF,
-         Wall,
-         similar_templates, 
-         is_ref,
-         est_contam_rate,
-         kept_spikes)  = run_kilosort(filename = binaryfilepath,
-                                      results_dir = foldername,
-                                      settings=settings, 
-                                      data_dtype = 'int16', # hardcoded for now..
-                                      probe = probe,
-                                      device = device,
-                                      save_extra_vars = True) # save pc_features
+        res  = run_kilosort(filename = binaryfilepath,
+                            results_dir = foldername,
+                            settings=settings, 
+                            data_dtype = 'int16', # hardcoded for now..
+                            probe = probe,
+                            device = device,
+                            save_extra_vars = True) # save pc_features
         
         if fix_shanks:
+                ops = res[0]
+                st = res[1]
+                tF = res[3]
                 ops['xc'],ops['yc'] = coords.astype(np.float32).T # recompute the spike positions
                 from kilosort.postprocessing import compute_spike_positions
                 positions = compute_spike_positions(st,tF,ops)
                 np.save(Path(foldername)/'spike_positions.npy',np.vstack(positions).T) # overwrite spike positions
                 np.save(Path(foldername)/'channel_positions.npy',coords.astype(float)) # save the correct channel positions
-        del ops
-        del st
-        del clu
-        del tF
-        del Wall
-        del similar_templates
-        del is_ref
-        del est_contam_rate
+        del res
         free_gpu()
         return True
 
