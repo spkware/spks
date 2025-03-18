@@ -7,7 +7,7 @@ Electrophysiology analysis package for large-scale electrophysiology
 
 *This package aims to provide transparent access to the code being used to process and analyse data; the documentation will provide references and (hopefully) a description of what the code is doing in each step.*
 
-### Instalation
+### Installation
 
 We typically install ``spks`` in environments with other packages so kept dependencies to a minimum
 
@@ -22,7 +22,7 @@ We typically install ``spks`` in environments with other packages so kept depend
    - ``tqdm``       - progress bars
    - ``joblib``     - multiprocess pools
 
-#### Instalation for the brave:
+#### Installation for the brave:
 
    1) clone the repository ``git clone https://github.com/spkware/spks.git`` usually in a separate folder
    2) install dependencies with ``pip`` or which ever way you want
