@@ -111,6 +111,9 @@ def read_spikeglx_meta(metafile):
          meta['adc_channel_groups']) = read_mux(meta['muxTbl'])
     #TODO deal with the NI gains
     #TODO deal with LF files.
+    # deal with version 20190413
+    if not 'imDatPrb_sn' in meta.keys() and 'imProbeSN' in meta.keys():
+        meta['imDatPrb_sn'] = meta['imProbeSN']
     return meta
 
 def read_geommap(tb):
