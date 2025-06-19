@@ -64,13 +64,17 @@ def move_sorting_results(
         for f in tqdm(files_to_copy,desc = 'Moving files'):
                 if os.path.exists(sorting_results_path/f.name):
                         os.remove(sorting_results_path/f.name) #need to delete files before moving to avoid weird permission error
-                shutil.move(f,sorting_results_path/f.name)
+                try:
+                        shutil.move(f,sorting_results_path/f.name)
+                except Exception as err:
+                        print(err)
+                        print(f'FAILED to move {f} to {sorting_results_path}')
         return sorting_results_path
 
 def run_kilosort(sessionfiles = [],
                  foldername = None,
                  temporary_folder = 'temporary',
-                 version = '2.5',
+                 version = '4.0',
                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                  sorting_folder_dictionary = dict(sortname = None, probename = 'probe0'),
                  do_post_processing = False, device = 'cuda',gpu_index = 0,
@@ -116,7 +120,7 @@ def run_kilosort(sessionfiles = [],
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            filter_pipeline_par = filter_pipeline_par,
                                            channels = tt.channel_info.channel_idx.values)
-        
+        del tt # RawRecording no longer needed
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
         if lowpass is None:
@@ -282,7 +286,7 @@ def kilosort_post_processing(resultsfolder,
         del sp
         # Compute metrics and mean waveforms
         sp = Clusters(resultsfolder,get_metrics = True, get_waveforms=True, load_template_features = True)
-        
+        del sp # close so it can move
         # 4. move the files to a new folder
         if move:
                 if type(sessionfolder) in [list]:
@@ -298,7 +302,7 @@ def kilosort_post_processing(resultsfolder,
                 # 5. delete the scratch
                 shutil.rmtree(resultsfolder)
                 resultsfolder = outputfolder
-        return resultsfolder
+        return resultsfolder # Clusters(resultsfolder) to open
 
 from .io import list_spikeglx_binary_paths
 
