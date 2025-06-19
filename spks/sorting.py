@@ -64,13 +64,17 @@ def move_sorting_results(
         for f in tqdm(files_to_copy,desc = 'Moving files'):
                 if os.path.exists(sorting_results_path/f.name):
                         os.remove(sorting_results_path/f.name) #need to delete files before moving to avoid weird permission error
-                shutil.move(f,sorting_results_path/f.name)
+                try:
+                        shutil.move(f,sorting_results_path/f.name)
+                except Exception as err:
+                        print(err)
+                        print(f'FAILED to move {f} to {sorting_results_path}')
         return sorting_results_path
 
 def run_kilosort(sessionfiles = [],
                  foldername = None,
                  temporary_folder = 'temporary',
-                 version = '2.5',
+                 version = '4.0',
                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                  sorting_folder_dictionary = dict(sortname = None, probename = 'probe0'),
                  do_post_processing = False, device = 'cuda',gpu_index = 0,
@@ -116,7 +120,7 @@ def run_kilosort(sessionfiles = [],
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            filter_pipeline_par = filter_pipeline_par,
                                            channels = tt.channel_info.channel_idx.values)
-        
+        del tt # RawRecording no longer needed
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
         if lowpass is None:
@@ -226,36 +230,24 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
                         data_dir = foldername)
         if not motion_correction:
                 settings['nblocks'] = 0
-        (ops,
-         st,
-         clu,
-         tF,
-         Wall,
-         similar_templates, 
-         is_ref,
-         est_contam_rate,
-         kept_spikes)  = run_kilosort(filename = binaryfilepath,
-                                      results_dir = foldername,
-                                      settings=settings, 
-                                      data_dtype = 'int16', # hardcoded for now..
-                                      probe = probe,
-                                      device = device,
-                                      save_extra_vars = True) # save pc_features
+        res  = run_kilosort(filename = binaryfilepath,
+                            results_dir = foldername,
+                            settings=settings, 
+                            data_dtype = 'int16', # hardcoded for now..
+                            probe = probe,
+                            device = device,
+                            save_extra_vars = True) # save pc_features
         
         if fix_shanks:
+                ops = res[0]
+                st = res[1]
+                tF = res[3]
                 ops['xc'],ops['yc'] = coords.astype(np.float32).T # recompute the spike positions
                 from kilosort.postprocessing import compute_spike_positions
                 positions = compute_spike_positions(st,tF,ops)
                 np.save(Path(foldername)/'spike_positions.npy',np.vstack(positions).T) # overwrite spike positions
                 np.save(Path(foldername)/'channel_positions.npy',coords.astype(float)) # save the correct channel positions
-        del ops
-        del st
-        del clu
-        del tF
-        del Wall
-        del similar_templates
-        del is_ref
-        del est_contam_rate
+        del res
         free_gpu()
         return True
 
@@ -294,7 +286,7 @@ def kilosort_post_processing(resultsfolder,
         del sp
         # Compute metrics and mean waveforms
         sp = Clusters(resultsfolder,get_metrics = True, get_waveforms=True, load_template_features = True)
-        
+        del sp # close so it can move
         # 4. move the files to a new folder
         if move:
                 if type(sessionfolder) in [list]:
@@ -310,7 +302,7 @@ def kilosort_post_processing(resultsfolder,
                 # 5. delete the scratch
                 shutil.rmtree(resultsfolder)
                 resultsfolder = outputfolder
-        return resultsfolder
+        return resultsfolder # Clusters(resultsfolder) to open
 
 from .io import list_spikeglx_binary_paths
 

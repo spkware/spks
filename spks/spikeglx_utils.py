@@ -16,16 +16,24 @@ def read_mux(mux_table):
 
 def read_imro(imro):
     probe_type,nchannels = [int(i) for i in imro[0].split(',')][:2]
+    
+    if not probe_type in [0,1020,1030,1100,1120,1121,1122,1123,1200,1300, # NP 1.0-like
+                          21,2003,2004, # NP 2.0, single multiplexed shank
+                          24,2013,2014,  # NP 2.0, 4-shank
+                          2020,2021, # Quad-probe
+                          1110]:  # UHD programmable
+        from warnings import warn
+        warn(f'The imro table format is not supported, assuming 1.0 {probe_type}.')
     imro_table = []
     for ln in imro[1:]:
         imro_table.append([int(i) for i in ln.split(' ')])
-    if probe_type in [24,2013]: # NP2 4 shank
+    if probe_type in [24,2013,2014]: # NP2 4 shank
         keys = ['channel_id', 'shank_id',
                 'bank_id', 'reference_id', 'electrode_id']
-    elif probe_type in [21]: # NP2 1 shank
+    elif probe_type in [21,2003,2004]: # NP2 1 shank
         keys = ['channel_id',
                 'bank_id', 'reference_id', 'electrode_id']
-    elif probe_type in [1110]:
+    elif probe_type in [1110]: # UHD
         keys = ['channel_id',
                 'bank_id', 'reference_id']
     else: # assume 1.0
@@ -35,6 +43,7 @@ def read_imro(imro):
                 'ap_gain',
                 'lf_gain',
                 'ap_highpass']
+        keys = keys[:len(imro_table[0])]
     # Add fixed gain for 2.0 probes
     if not 'ap_gain' in keys:
         keys.append('ap_gain')
@@ -55,6 +64,8 @@ def read_spikeglx_meta(metafile):
         meta = {}
         for ln in f.readlines():
             tmp = ln.split('=')
+            if not len(tmp) == 2:
+                continue # it would break if there is a newline in the end 
             k,val = tmp
             k = k.strip()
             val = val.strip('\r\n')
@@ -100,6 +111,9 @@ def read_spikeglx_meta(metafile):
          meta['adc_channel_groups']) = read_mux(meta['muxTbl'])
     #TODO deal with the NI gains
     #TODO deal with LF files.
+    # deal with version 20190413
+    if not 'imDatPrb_sn' in meta.keys() and 'imProbeSN' in meta.keys():
+        meta['imDatPrb_sn'] = meta['imProbeSN']
     return meta
 
 def read_geommap(tb):
