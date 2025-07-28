@@ -72,6 +72,7 @@ def move_sorting_results(
         return sorting_results_path
 
 def run_kilosort(sessionfiles = [],
+                 channels = None,
                  foldername = None,
                  temporary_folder = 'temporary',
                  version = '4.0',
@@ -117,9 +118,11 @@ def run_kilosort(sessionfiles = [],
         if not os.path.exists(output_folder):
                 os.makedirs(output_folder)
         print(f'Exporting binary to {binaryfilepath}')
+        if channels is None:
+                channels = tt.channel_info.channel_idx.values
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            filter_pipeline_par = filter_pipeline_par,
-                                           channels = tt.channel_info.channel_idx.values)
+                                           channels = channels)
         del tt # RawRecording no longer needed
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
