@@ -239,6 +239,7 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
                             data_dtype = 'int16', # hardcoded for now..
                             probe = probe,
                             device = device,
+                            save_preprocessed_copy = True, # save temp_wh.dat
                             save_extra_vars = True) # save pc_features
         
         if fix_shanks:
