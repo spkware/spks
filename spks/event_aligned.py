@@ -85,7 +85,7 @@ def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
 def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
     '''compute the PETH for one neuron'''
     binwidth_s = binwidth_ms/1000
-    event_times = discard_nans(event_times) 
+    #event_times = discard_nans(event_times) 
     
     rasters = align_raster_to_event(event_times, 
                                 spike_times,
