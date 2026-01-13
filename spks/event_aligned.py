@@ -85,7 +85,6 @@ def align_raster_to_event(event_times, spike_times, pre_seconds, post_seconds):
 def compute_spike_count(event_times, spike_times, pre_seconds, post_seconds, binwidth_ms=25, pad=0, kernel=None):
     '''compute the PETH for one neuron'''
     binwidth_s = binwidth_ms/1000
-    event_times = discard_nans(event_times) 
     
     rasters = align_raster_to_event(event_times, 
                                 spike_times,
@@ -122,7 +121,6 @@ def compute_spike_count_truncated(event_times, spike_times, max_pre_seconds, max
     '''similar to compute_spike_count but takes a list of pre and post seconds, as well as a max pre and post time.
     This allows truncation of the psth_matrix, where values that are not within the pre and post time are set to nan'''
     binwidth_s = binwidth_ms/1000
-    event_times = discard_nans(event_times)
     rasters = align_raster_to_event(event_times,
                                     spike_times,
                                     pre_seconds,
