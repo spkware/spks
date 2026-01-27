@@ -6,7 +6,7 @@ from .raw import *
 
 def get_probename(filename):
         # get the probe name from a file (only works with spikeglx?)
-        probename = re.search('\s*imec[0-9]*[a-z]?\s*',str(filename))
+        probename = re.search(r'\s*imec[0-9]*[a-z]?\s*',str(filename))
         if not probename is None:
                 return str(probename.group()).strip('/').strip('.')
         else:
@@ -78,9 +78,11 @@ def run_kilosort(sessionfiles = [],
                  version = '4.0',
                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                  sorting_folder_dictionary = dict(sortname = None, probename = 'probe0'),
-                 do_post_processing = False, device = 'cuda',gpu_index = 0,
+                 do_post_processing = False, device = 'cuda', gpu_index = 0,
                  motion_correction = True,
+                 dredge_motion_correction = False,
                  thresholds = None,
+                 batch_size = int(60000),
                  lowpass = 300.,
                  highpass = 13000.,
                  filter_pipeline_par =  [dict(function = 'bandpass_filter_gpu',
@@ -111,8 +113,9 @@ def run_kilosort(sessionfiles = [],
         tt = RawRecording(sessionfiles,device = device,
                           filter_pipeline_par = filter_pipeline_par,
                           return_preprocessed = True)
-        binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin').format(
-                **sorting_folder_dictionary)
+        dtype = 'int16'
+        binaryfilepath = pjoin(foldername,'filtered_recording.{probename}.bin'.format(
+                **sorting_folder_dictionary))
         output_folder = os.path.dirname(binaryfilepath)
         
         if not os.path.exists(output_folder):
@@ -123,6 +126,23 @@ def run_kilosort(sessionfiles = [],
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            filter_pipeline_par = filter_pipeline_par,
                                            channels = channels)
+
+        if dredge_motion_correction:
+                from .raw import dredge_motion_correct_binary_file
+                n_jobs = 10 
+                binaryfilepath = dredge_motion_correct_binary_file(binaryfilepath,
+                                                          nchannels = metadata['nchannels'],
+                                                          sampling_rate = metadata['sampling_rate'],
+                                                          channel_coords = metadata['channel_coords'],
+                                                          channel_shank = metadata['channel_shank'],
+                                                          output_folder = foldername,
+                                                          overwrite = True,
+                                                          output_dtype = 'int16',
+                                                          n_jobs = n_jobs)
+                dtype = 'int16'            
+                print('Motion corrected done with dredge so skipping kilosort motion.')
+                motion_correction = 0
+
         del tt # RawRecording no longer needed
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
         opspath = pjoin(os.path.dirname(binaryfilepath),'ops.mat')
@@ -188,11 +208,14 @@ def run_kilosort(sessionfiles = [],
                         os.system(cmd) # easier to kill than subprocess?
         elif version == '4.0':
                 res = run_kilosort4(
-                        device,
-                        foldername,
-                        binaryfilepath,
-                        metadata,
-                        motion_correction)
+                        device = device,
+                        foldername = foldername,
+                        binaryfilepath = binaryfilepath,
+                        metadata = metadata,
+                        motion_correction = motion_correction,
+                        thresholds = thresholds,
+                        dtype = dtype,
+                        batch_size = batch_size)
         else:
                 raise(OSError('Undefined version {version}'))
         if do_post_processing:
@@ -200,11 +223,18 @@ def run_kilosort(sessionfiles = [],
                         foldername,
                         sessionfiles,
                         move =  using_scratch, 
+                        binaryfilepath = binaryfilepath,
                         sorting_results_path_rules = sorting_results_path_rules,
                         sorting_folder_dictionary = sorting_folder_dictionary)
         return foldername
 
-def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correction):
+def run_kilosort4(device, foldername, binaryfilepath, 
+                  metadata, 
+                  dtype = 'int16',
+                  thresholds = None, # pass a list if needed
+                  do_car = False,
+                  batch_size = int(60000), 
+                  motion_correction = 1):
         nchannels = metadata['nchannels']
         coords = np.stack(metadata['channel_coords'])
         
@@ -230,15 +260,22 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
         from kilosort import run_kilosort
         settings = dict(fs = metadata['sampling_rate'],
                         n_chan_bin = nchannels,
+                        batch_size = batch_size,
                         data_dir = foldername)
-        if not motion_correction:
-                settings['nblocks'] = 0
+        
+        settings['nblocks'] = int(motion_correction)
+        if not thresholds is None:
+                settings['Th_universal'] = thresholds[0]
+                settings['Th_learned'] = thresholds[1]
+
         res  = run_kilosort(filename = binaryfilepath,
                             results_dir = foldername,
-                            settings=settings, 
-                            data_dtype = 'int16', # hardcoded for now..
+                            settings = settings, 
+                            data_dtype = dtype,
                             probe = probe,
                             device = device,
+                            do_CAR = do_car,
+                            save_preprocessed_copy = False,
                             save_extra_vars = True) # save pc_features
         
         if fix_shanks:
@@ -257,9 +294,10 @@ def run_kilosort4(device, foldername, binaryfilepath, metadata, motion_correctio
 def kilosort_post_processing(resultsfolder,
                              sessionfolder,
                              move = False,
+                             binaryfilepath = None,
                              sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                              sorting_folder_dictionary = dict(
-                                     sortname = 'kilosort25',
+                                     sortname = 'kilosort',
                                      probename = 'probe0'),
                              max_n_spikes = 1000):
         '''
@@ -281,7 +319,9 @@ def kilosort_post_processing(resultsfolder,
         sp = Clusters(resultsfolder,get_metrics = False,get_waveforms=False)
         meta = load_dict_from_h5(list(resultsfolder.glob('filtered_recording.*.metadata.hdf'))[0])
         from .io import map_binary
-        data = map_binary(list(resultsfolder.glob('filtered_recording.*.bin'))[0],meta['nchannels'])
+        if binaryfilepath is None:
+                binaryfilepath = list(resultsfolder.glob('filtered_recording.*.bin'))[0]
+        data = map_binary(binaryfilepath,meta['nchannels'])
         # don't filter the waveforms because it was done before.
         sp.extract_waveforms(data,np.arange(meta['nchannels']),
                              max_n_spikes=max_n_spikes,

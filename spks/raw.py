@@ -327,13 +327,13 @@ Gets the sampling rate into all filters that need it and initializes filter func
         '''
         Exports to binary file and a channelmap.
         '''
-        if not filename.endswith('.bin'):
+        if not str(filename).endswith('.bin'):
             filename += '.bin'
         from .sync import unpackbits_gpu
         chunks = chunk_indices(self,chunksize = chunksize)
         if not os.path.isdir(os.path.dirname(filename)):
             os.makedirs(os.path.dirname(filename))
-            
+        
         if channels is None:
             channels = np.arange(self.shape[1], dtype = int)
         self._parse_filter_pipeline_par(filter_pipeline_par, channels = channels)
@@ -347,15 +347,14 @@ Gets the sampling rate into all filters that need it and initializes filter func
         # get the number of jobs depending on the available cuda size
         if n_jobs is None:
             if torch.cuda.is_available():
-                n_jobs = int(np.floor(torch.cuda.mem_get_info()[0]/(chunksize*4*32*len(channels))))
+                n_jobs = int(np.floor(torch.cuda.mem_get_info()[0]/(chunksize*4*26*len(channels))))
                 # This depends on which preprocessing is done.. For the fft we need more memory
             else:
-                n_jobs = 2
-
+                n_jobs = 8
         with Parallel(n_jobs = n_jobs) as pool:
             # Run a parallel pool that writes the binary
             sync = pool(delayed(_write_chunk_from_files)(
-                self.files, chunk,out,
+                self.files, chunk, out,
                 channels = channels,
                 sync_channel = sync_channel,
                 filter_pipeline_par = filter_pipeline_par)
@@ -438,3 +437,47 @@ def _write_chunk_from_files(files, chunk, outputmmap,
     outputmmap[chunk[0]:chunk[1],:] = buf[:]
     del dat
     return sync_channel        
+
+
+def dredge_motion_correct_binary_file(binaryfilepath, nchannels, sampling_rate, 
+                              channel_coords, 
+                              channel_shank, 
+                              output_folder,
+                              overwrite = True,
+                              is_filtered = True,
+                              output_dtype = 'int16',#'float32',
+                              n_jobs = 10):
+    # then do the motion correction using dredge
+    # we'll use the dredge implementation from spike interface..
+    import spikeinterface.full as si
+    global_job_kwargs = dict(n_jobs = n_jobs, chunk_duration = "1s", 
+                             pool_engine = "process",
+                             max_threads_per_worker = 4)
+    si.set_global_job_kwargs(**global_job_kwargs)
+    rec = si.read_binary(binaryfilepath, 
+                         sampling_frequency=sampling_rate,
+                         dtype = np.int16,  # hardcoded for now
+                         num_channels = nchannels,
+                         is_filtered = is_filtered)
+    rec.is_filtered = is_filtered
+
+    rec.set_channel_locations(channel_coords)
+    rec.set_channel_groups(channel_shank)
+
+    mo = si.correct_motion(rec, preset='dredge')
+
+    mo.save(folder=pjoin(output_folder,'motion'),
+            dtype = output_dtype, 
+            format= 'binary')
+
+    # move to filtered_recording
+    del rec
+    del mo
+    del si
+    outfile = pjoin(output_folder,'motion','traces_cached_seg0.raw')
+    if overwrite:
+        import shutil
+        shutil.move(outfile,binaryfilepath)
+        outfile = binaryfilepath
+    # shutil.rmtree(pjoin(foldername,'motion'))        
+    return outfile

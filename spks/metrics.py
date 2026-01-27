@@ -236,8 +236,9 @@ def depth_stability(sptimes,
                     spdepths,
                     tmin = 0,
                     tmax = None,
-                    min_spikes = 5,
-                    bin_size = 60, # seconds
+                    min_spikes = 5, # min number of spikes to compute median waveforms 
+                    bin_size = 60, # bin size to compute median waveforms seconds
+                    frac_compare = 0.2 # fraction of the experiment to compare start and end drift
                    ):
     '''
     Calculate the depth stability of a unit from the spike times and depths.
@@ -259,7 +260,7 @@ time periods (the mean so we can compare units recorded for differnet time durat
     med_depths[:] = np.nan
     for i in range(len(edges)):
         t = spdepths[bins == i+1]
-        if len(t)>min_spikes:
+        if len(t) > min_spikes:
             med_depths[i] = np.median(t)
     # 5 bins in the start and 5 bins in the end
     start_to_end_drift = np.nanmedian(med_depths[-5:])-np.nanmedian(med_depths[:5]) 

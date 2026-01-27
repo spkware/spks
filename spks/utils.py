@@ -2,6 +2,7 @@ import numpy as np
 import os
 import sys
 from os.path import join as pjoin
+from pathlib import Path
 from natsort import natsorted
 from glob import glob
 import pandas as pd
