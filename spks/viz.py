@@ -20,6 +20,7 @@ def plot_drift_raster(spike_times,
                       spike_amplitudes,
                       n_spikes_to_plot = 100000,
                       markersize = 0.03,
+                      ax=None,
                       **kwargs):
     '''
     Plot a drift raster: scatter of spike times versus depths, the amplitude is the color
@@ -31,6 +32,8 @@ def plot_drift_raster(spike_times,
     spike_depths
     spike_amplitudes
     '''
+    if ax is None:
+        ax = plt.gca()
     idx = np.random.choice(
         np.arange(len(spike_times)),
         np.min([n_spikes_to_plot,len(spike_times)]),
@@ -38,14 +41,15 @@ def plot_drift_raster(spike_times,
     idx = idx[np.argsort(np.take(spike_amplitudes,idx,axis=0))]
     
 
-    plt.scatter(spike_times[idx],
-                spike_depths[idx], markersize,
-                spike_amplitudes[idx],**kwargs)
+    scatter = ax.scatter(spike_times[idx],
+                         spike_depths[idx], markersize,
+                         spike_amplitudes[idx],**kwargs)
     # set the axis
-    plt.axis([0,
+    ax.axis([0,
               np.max(spike_times), # max time
               np.min(spike_depths), # max channel
               np.max(spike_depths)]);# min channel 
+    return ax, scatter
 
 def plot_event_aligned_raster(event_times, spike_times, sorting='', pre_seconds=1, post_seconds=2, offset=0, ax=None, color='black', **kwargs):
     """Plot rasters from multiple trials aligned to event_times
