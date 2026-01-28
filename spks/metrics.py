@@ -262,8 +262,8 @@ time periods (the mean so we can compare units recorded for differnet time durat
         t = spdepths[bins == i+1]
         if len(t) > min_spikes:
             med_depths[i] = np.median(t)
-    # 5 bins in the start and 5 bins in the end
-    start_to_end_drift = np.nanmedian(med_depths[-5:])-np.nanmedian(med_depths[:5]) 
+    start_to_end_drift = np.nanmedian(med_depths[edges[::-1]<tmax*frac_compare]) - np.nanmedian(med_depths[edges[:]<tmax*frac_compare])
+
     med_depths = med_depths[np.isfinite(med_depths)]
     if len(med_depths) < 3: # in case there aren't enough spikes
         return np.nan, np.nan, np.nan
