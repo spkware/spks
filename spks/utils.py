@@ -98,10 +98,10 @@ def chunk_indices(data, axis = 0, chunksize = 60000, min_chunksize = 512):
     Joao Couto - May 2020
     '''
     chunks = np.arange(0,data.shape[axis], chunksize, dtype = int)
-    if (data.shape[1] - chunks[-1]) < min_chunksize:
+    if (data.shape[axis] - chunks[-1]) < min_chunksize:
         chunks[-1] = data.shape[axis]
     if not chunks[-1] == data.shape[axis]:
-        chunks = np.hstack([chunks, data.shape[1]])
+        chunks = np.hstack([chunks, data.shape[axis]])
     return [[int(chunks[i]), int(chunks[i+1])] for i in range(len(chunks)-1)]
 
 def chunk_array_of_indices(indices, chunksize=60000, min_chunksize=512):
@@ -367,7 +367,7 @@ def save_dict_to_h5(filename,dictionary,compression = 'lzf', compression_size_th
         f.create_dataset(str(key),data = val,compression=compression)
     
     with h5py.File(filename,'w') as f:
-        for k in tqdm(dictionary.keys()):
+        for k in tqdm(dictionary.keys(),desc = 'Saving dictionary to hdf5'):
             if not type(dictionary[k]) in [dict]:
                 _save_dataset(f,k,dictionary[k])
             else:

@@ -78,7 +78,10 @@ def run_kilosort(sessionfiles = [],
                  version = '4.0',
                  sorting_results_path_rules = ['..','..','{sortname}','{probename}'],
                  sorting_folder_dictionary = dict(sortname = None, probename = 'probe0'),
-                 do_post_processing = False, device = 'cuda', gpu_index = 0,
+                 do_post_processing = False, 
+                 device = 'cuda',
+                 gpu_index = 0,
+                 split_shanks = False,
                  motion_correction = True,
                  dredge_motion_correction = False,
                  thresholds = None,
@@ -128,18 +131,26 @@ def run_kilosort(sessionfiles = [],
                                            channels = channels)
 
         if dredge_motion_correction:
-                from .raw import dredge_motion_correct_binary_file
+                from .raw import dredge_motion_correct_binary_file,dredge_motion_correct_across_sessions
                 n_jobs = 10 
-                binaryfilepath = dredge_motion_correct_binary_file(binaryfilepath,
-                                                          nchannels = metadata['nchannels'],
-                                                          sampling_rate = metadata['sampling_rate'],
-                                                          channel_coords = metadata['channel_coords'],
-                                                          channel_shank = metadata['channel_shank'],
-                                                          output_folder = foldername,
-                                                          overwrite = True,
-                                                          output_dtype = 'int16',
-                                                          n_jobs = n_jobs)
-                dtype = 'int16'            
+                if len(sessionfiles)>1:
+                        print('Using multisession dredge.')
+                        binaryfilepath = dredge_motion_correct_across_sessions(binaryfilepath=binaryfilepath,
+                                                                               metadata = metadata,
+                                                                               channel_info = tt.channel_info,
+                                                                               n_jobs = n_jobs)
+                else:
+                        print('Using single session dredge.')
+                        binaryfilepath = dredge_motion_correct_binary_file(binaryfilepath,
+                                                                  nchannels = metadata['nchannels'],
+                                                                  sampling_rate = metadata['sampling_rate'],
+                                                                  channel_coords = metadata['channel_coords'],
+                                                                  channel_shank = metadata['channel_shank'],
+                                                                  output_folder = foldername,
+                                                                  overwrite = True,
+                                                                  output_dtype = 'int16',
+                                                                  n_jobs = n_jobs)
+                        dtype = 'int16'            
                 print('Motion corrected done with dredge so skipping kilosort motion.')
                 motion_correction = 0
 
