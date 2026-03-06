@@ -112,7 +112,7 @@ def run_kilosort(sessionfiles = [],
                         f['lowpass'] = lowpass
                 if 'highpass' in f.keys() and not highpass is None:
                         f['highpass'] = highpass
-                        
+                
         tt = RawRecording(sessionfiles,device = device,
                           filter_pipeline_par = filter_pipeline_par,
                           return_preprocessed = True)
@@ -126,6 +126,8 @@ def run_kilosort(sessionfiles = [],
         print(f'Exporting binary to {binaryfilepath}')
         if channels is None:
                 channels = tt.channel_info.channel_idx.values
+        print(tt.offsets,len(sessionfiles),len(sessionfiles)>1)
+        print(sessionfiles)
         binaryfile,metadata = tt.to_binary(binaryfilepath,
                                            filter_pipeline_par = filter_pipeline_par,
                                            channels = channels)
@@ -133,11 +135,11 @@ def run_kilosort(sessionfiles = [],
         if dredge_motion_correction:
                 from .raw import dredge_motion_correct_binary_file,dredge_motion_correct_across_sessions
                 n_jobs = 10 
+                print(len(sessionfiles),len(sessionfiles)>1)
                 if len(sessionfiles)>1:
                         print('Using multisession dredge.')
                         binaryfilepath = dredge_motion_correct_across_sessions(binaryfilepath=binaryfilepath,
                                                                                metadata = metadata,
-                                                                               channel_info = tt.channel_info,
                                                                                n_jobs = n_jobs)
                 else:
                         print('Using single session dredge.')
@@ -218,6 +220,8 @@ def run_kilosort(sessionfiles = [],
                         cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
                         os.system(cmd) # easier to kill than subprocess?
         elif version == '4.0':
+                if thresholds is None:
+                        thresholds = [9.,8.]
                 res = run_kilosort4(
                         device = device,
                         foldername = foldername,

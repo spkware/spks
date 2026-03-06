@@ -9,11 +9,10 @@ import pandas as pd
 import torch
 from numpy.lib.stride_tricks import as_strided
 from functools import partial
-from multiprocessing import Pool, cpu_count
 from scipy.stats import median_abs_deviation 
 from pathlib import Path
 import re
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from multiprocessing.pool import Pool,ThreadPool
 from multiprocessing import cpu_count
 import h5py as h5
