@@ -478,9 +478,9 @@ def dredge_motion_correct_across_sessions(binaryfilepath,metadata,segment_durati
     dt = np.dtype(np.int16)
     nchannels = int(len(metadata['channel_idx']))
     nsamples = int(os.path.getsize(binaryfilepath)/(nchannels*dt.itemsize))
-    binarymmap = np.memmap(str(binaryfilepath).replace('.bin','corrected.bin'),
+    binarymmap = np.memmap(str(binaryfilepath), #.replace('.bin','corrected.bin'),
                             dtype = dt,
-                            mode = 'w+',
+                            mode = 'r+',
                             shape=(nsamples,nchannels))
     shanks = np.unique(metadata['channel_shank'])
     job_kwargs = dict(chunk_duration="1s", n_jobs=n_jobs, progress_bar=True)
@@ -549,7 +549,8 @@ def dredge_motion_correct_across_sessions(binaryfilepath,metadata,segment_durati
                                                                             start_frame = new_start, 
                                                                             end_frame=new_end).round().astype('int16')
         for irec,(o,e) in enumerate(metadata['file_offsets']):
-            motion = motion_objs[irec]['motion']
+            # overwrite the object otherwise it doesnt apply the correct interpolation.
+            motion = motion_objs[irec]['motion'].from_dict(motion_objs[irec]['motion'].to_dict())
             rec_ori = entire_rec.frame_slice(
                 start_frame=o,
                 end_frame=e).select_channels(np.array(metadata['channel_idx'])[chan_sel].astype(int)).astype("float32")
