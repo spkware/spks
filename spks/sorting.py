@@ -153,8 +153,8 @@ def run_kilosort(sessionfiles = [],
                                                                   output_dtype = 'int16',
                                                                   n_jobs = n_jobs)
                         dtype = 'int16'            
-                print('Motion corrected done with dredge so skipping kilosort motion.')
-                motion_correction = 0
+                        print('Motion corrected done with dredge so skipping kilosort motion.')
+                        motion_correction = 0
 
         del tt # RawRecording no longer needed
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
