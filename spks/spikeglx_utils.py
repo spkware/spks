@@ -81,7 +81,7 @@ def read_spikeglx_meta(metafile):
                         meta[k] = val
     # Set the sample rate depending on the recording mode
     meta['sRateHz'] = meta[meta['typeThis'][:2]+'SampRate']
-    if meta['typeThis'] == 'nidq':
+    if meta['typeThis'] in ['nidq','obx']:
         # skip reading imro tables and all
         return meta
     try:
@@ -133,7 +133,7 @@ def parse_coords_from_spikeglx_metadata(meta,shanksep = 250):
     '''
     Python version of the channelmap parser from spikeglx files.
     
-    The 'else' is adapted from the matlab from Jeniffer Colonel
+    The 'else' is adapted from the matlab code of Jennifer Colonell: https://github.com/jenniferColonell/SGLXMetaToCoords
 
     Joao Couto - 2022
     '''

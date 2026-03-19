@@ -1,4 +1,4 @@
-from .utils import np, partial, Pool, tqdm, discard_nans, binary_spikes # avoid "*" import here. Torch and other imports with the gpu don't play well with the cluster.
+from .utils import np, partial, Pool, tqdm, discard_nans, binary_spikes
 from collections.abc import Iterable
 
 def get_triggered_unit_spikes(ts,events,tpre = 1,tpost = 1):
@@ -122,7 +122,6 @@ def compute_spike_count_truncated(event_times, spike_times, max_pre_seconds, max
     '''similar to compute_spike_count but takes a list of pre and post seconds, as well as a max pre and post time.
     This allows truncation of the psth_matrix, where values that are not within the pre and post time are set to nan'''
     binwidth_s = binwidth_ms/1000
-    event_times = discard_nans(event_times)
     rasters = align_raster_to_event(event_times,
                                     spike_times,
                                     pre_seconds,

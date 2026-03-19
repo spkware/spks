@@ -1,5 +1,5 @@
 from .utils import *
-import tqdm as tqdm
+from tqdm.auto import tqdm
 from pathlib import Path
 
 __KILOSORT_CLUSTERS_FILENAME = 'cluster_KSLabel.tsv'
@@ -172,7 +172,7 @@ def binary_read_single_channel(bin_file_path,channel_idx,chunksize = 30000*10):
 
     
 
-    from tqdm import tqdm    
+    from tqdm.auto import tqdm    
     with Pool(processes=cpu_count()) as pool: 
             res = []
             for r in tqdm(pool.imap_unordered(partial(_get_binary_multiproceessing_wrapper,

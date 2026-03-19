@@ -248,6 +248,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
                 continue
             self._set_current_buffer(ifile)
             fileidx = selidx[buffidx]-o
+            #print(f'requested {selidx[0]}:{selidx[-1]} which is file {ifile} {fileidx[0]}:{fileidx[-1]}')
             tmp = self.buffers[ifile][fileidx][:,rows]
             if len(tmp):
                 if return_preprocessed:
@@ -269,7 +270,6 @@ Gets the sampling rate into all filters that need it and initializes filter func
                 self.buffers.append(load_spikeglx_mtsdecomp(file)[0])
 
     def _set_current_buffer(self,ibuffer):
-        #TODO: make thread safe by having a list of buffers
         if not self.current_index == ibuffer:
             self.current_index = ibuffer
             self.current_pointer = self.buffers[self.current_index]
@@ -295,6 +295,12 @@ Gets the sampling rate into all filters that need it and initializes filter func
                     columns = ['channel_idx','channel_coord','channel_shank','conversion_factor'])
         self._load_buffers()
         self._set_current_buffer(0)
+        self._set_shape_and_offsets()
+
+    def _set_shape_and_offsets(self, offsets = None):
+        # this can be used to trim the files but it is undocumented for the moment
+        if not offsets is None:
+            self.offsets = offsets
         self.shape = (sum(self.offsets),self.current_pointer.shape[1])
         if len(self.offsets)>1:
             self.file_sample_offsets = np.vstack([np.hstack([[0],np.cumsum(self.offsets)[:-1]]),
@@ -304,7 +310,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
 
     def extract_syncs(self, sync_channel = -1, unpack = True, chunksize = 600000):
         '''Syncs are extracted from the sync channel and converted into onsets and offsets.'''
-        from tqdm import tqdm
+        from tqdm.auto import tqdm
         sync_onsets = []
         sync_offsets = []
         for i,f in enumerate(self.files):
@@ -317,23 +323,34 @@ Gets the sampling rate into all filters that need it and initializes filter func
         self.sync_offsets = sync_offsets
         return sync_onsets,sync_offsets
 
+    def get_n_jobs(self, chunksize = 30000*2,nchannels = None, required_per_worker = 4*26):
+        n_jobs = 8
+        if torch.cuda.is_available():
+            # This  depends on which preprocessing is done.. For the fft we need more memory
+            if nchannels is None:
+                nchannels = self.shape[1]
+            n_jobs = int(np.floor(torch.cuda.mem_get_info()[0]/(chunksize*required_per_worker*nchannels)))
+        return n_jobs
+
     def to_binary(self, filename, channels = None, processed = True, 
                   chunksize = 30000*2, sync_channel = -1, 
                   get_channels_mad = True,
                   n_jobs = None,
                   filter_pipeline_par = [dict(**d) for d in
-                                         default_filter_pipeline_par]):
+                                         default_filter_pipeline_par],
+                  chunks = None):
         # create a binary file
         '''
         Exports to binary file and a channelmap.
         '''
-        if not filename.endswith('.bin'):
+        if not str(filename).endswith('.bin'): 
             filename += '.bin'
         from .sync import unpackbits_gpu
-        chunks = chunk_indices(self,chunksize = chunksize)
+        if chunks is None:
+            # allows passing specific chunks, for instance to trim down the file
+            chunks = chunk_indices(self,chunksize = chunksize)
         if not os.path.isdir(os.path.dirname(filename)):
             os.makedirs(os.path.dirname(filename))
-            
         if channels is None:
             channels = np.arange(self.shape[1], dtype = int)
         self._parse_filter_pipeline_par(filter_pipeline_par, channels = channels)
@@ -343,22 +360,19 @@ Gets the sampling rate into all filters that need it and initializes filter func
                         mode = 'w+',
                         shape=(self.shape[0],len(channels)))
         from joblib import Parallel,delayed
-        from tqdm import tqdm        
+        from tqdm.auto import tqdm        
         # get the number of jobs depending on the available cuda size
         if n_jobs is None:
-            if torch.cuda.is_available():
-                n_jobs = int(np.floor(torch.cuda.mem_get_info()[0]/(chunksize*4*32*len(channels))))
-                # This depends on which preprocessing is done.. For the fft we need more memory
-            else:
-                n_jobs = 2
-
+            n_jobs = self.get_n_jobs(chunksize,nchannels = len(channels))
+        # print(f'n_jobs = {n_jobs}')
         with Parallel(n_jobs = n_jobs) as pool:
             # Run a parallel pool that writes the binary
             sync = pool(delayed(_write_chunk_from_files)(
-                self.files, chunk,out,
+                self.files, chunk, out,
                 channels = channels,
                 sync_channel = sync_channel,
-                filter_pipeline_par = filter_pipeline_par)
+                filter_pipeline_par = filter_pipeline_par,
+                offsets = self.offsets)
                         for chunk in tqdm(chunks,
                                           desc = 'Exporting binary'))
             # free all gpu jobs
@@ -369,7 +383,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
         from joblib.externals.loky import get_reusable_executor
         get_reusable_executor().shutdown(wait=True)
 
-        # save data
+        # save metadata
         nchannels = len(channels)
         channel_positions = []
         conversion_f = []
@@ -409,7 +423,7 @@ Gets the sampling rate into all filters that need it and initializes filter func
             mad_int16 = [m for m in mad(out[:30000*30,:])]
             metadata['channel_mad_int16'] = mad_int16
         # del out
-        save_dict_to_h5(filename.replace('.bin','.metadata.hdf'), metadata)
+        save_dict_to_h5(str(filename).replace('.bin','.metadata.hdf'), metadata)
         return out, metadata
 
 
@@ -417,15 +431,16 @@ Gets the sampling rate into all filters that need it and initializes filter func
 def _write_chunk_from_files(files, chunk, outputmmap,
                             channels = None, 
                             filter_pipeline_par = None,
-                            sync_channel = -1):
+                            sync_channel = -1,
+                            offsets = None):
     '''
     Support function for writing chunks a memory mapped file.
     Example usage with joblib:
-    
 
     '''
     dat = RawRecording(files,return_preprocessed=False)
-
+    if not offsets is None: # in case the shape is trimmed
+        dat._set_shape_and_offsets(offsets)
     filter_pipeline = parse_filter_pipeline(filter_pipeline_par)
     buf = dat[chunk[0]:chunk[1]]
     if not sync_channel is None:
@@ -436,5 +451,165 @@ def _write_chunk_from_files(files, chunk, outputmmap,
     for func in filter_pipeline:
         buf = func(buf)
     outputmmap[chunk[0]:chunk[1],:] = buf[:]
+    #print(f'saving {chunk[0]}:{chunk[1]}')
     del dat
     return sync_channel        
+
+def load_spks_binary_to_spikeinterface(binary_fname,metadata = None):
+    ''' Loads a RawRecording binary to spikeinterface as a Recording object.
+    metadata is a dict with fields "sampling_rate", "nchannels", "channel_coords" and "channel_shank"
+    '''
+    import spikeinterface.full as si
+    if metadata is None:
+        metadata_fname = str(binary_fname).replace('.bin','.metadata.hdf')
+        metadata = load_dict_from_h5(metadata_fname)
+
+    rec = si.read_binary(binary_fname,sampling_frequency=metadata['sampling_rate'],
+                     dtype = np.int16, num_channels = metadata['nchannels'],
+                     is_filtered = True)
+    rec.is_filtered = True
+
+    rec.set_channel_locations(metadata['channel_coords'].astype(float))
+    rec.set_channel_groups(metadata['channel_shank'])
+    return rec
+
+def dredge_motion_correct_across_sessions(binaryfilepath,metadata,segment_duration = 3, n_jobs = 10):
+    seg_duration = int(segment_duration*60*metadata['sampling_rate'])
+    dt = np.dtype(np.int16)
+    nchannels = int(len(metadata['channel_idx']))
+    nsamples = int(os.path.getsize(binaryfilepath)/(nchannels*dt.itemsize))
+    binarymmap = np.memmap(str(binaryfilepath), #.replace('.bin','corrected.bin'),
+                            dtype = dt,
+                            mode = 'r+',
+                            shape=(nsamples,nchannels))
+    shanks = np.unique(metadata['channel_shank'])
+    job_kwargs = dict(chunk_duration="1s", n_jobs=n_jobs, progress_bar=True)
+    tmp_folder = Path(binaryfilepath).parent
+    concat_offsets = np.cumsum([0]+[seg_duration for o in metadata['file_offsets']])
+
+    from spikeinterface.preprocessing import bandpass_filter
+    from spikeinterface.full import correct_motion
+    from spikeinterface.sortingcomponents.peak_detection import detect_peaks
+    from spikeinterface.sortingcomponents.peak_selection import select_peaks
+    from spikeinterface.sortingcomponents.peak_localization import localize_peaks
+    from spikeinterface.sortingcomponents.motion import estimate_motion, interpolate_motion, correct_motion_on_peaks
+    # read the whole file with spike interface, then split in segments per session and run dredge on that.
+    entire_rec = load_spks_binary_to_spikeinterface(binaryfilepath)
+
+    for shank in shanks: # do the processing per shank 
+        chan_sel = np.where(metadata['channel_shank'] == shank)[0]
+        print(f'Correcting motion for shank {shank} ({len(chan_sel)} channels)')
+        #concatenated 5 min
+        trimmed_filename = Path(tmp_folder)/f'temporary_rec_{shank}.trimmed.bin'
+        trimmed_filename.parent.mkdir(exist_ok = True,parents = True)
+        trimmed_meta = dict(sampling_rate =  metadata["sampling_rate"],
+                            nchannels = len(chan_sel),
+                            channel_coords = metadata['channel_coords'][chan_sel].astype(float),
+                            channel_shank = metadata['channel_shank'][chan_sel])
+        trimmed_bin = np.memmap(trimmed_filename,
+                                dtype = np.int16,
+                                mode = 'w+',
+                                shape=(concat_offsets[-1],len(chan_sel)))
+        motion_objs = []
+        peaks_sample = []
+        peak_locations_sample = []
+        for irec,(o,e) in enumerate(metadata['file_offsets']):
+            rec = entire_rec.frame_slice(start_frame=int(o),
+                        end_frame=int(e)).select_channels(np.array(metadata['channel_idx'])[chan_sel].astype(int))
+            rec = bandpass_filter(recording=rec, freq_min=300., freq_max=5000.)
+            recording_corrected, motion_info = correct_motion(rec, preset='dredge',
+                                                                output_motion_info=True, **job_kwargs)
+            motion_objs.append(motion_info)
+            #peak_locations = correct_motion_on_peaks(motion_info['peaks'], motion_info['peak_locations'], motion_info['motion'],rec)
+            # prepare the correction 
+            concat_offset = concat_offsets[irec]
+            # TODO: make this work for short sessions.
+            for no,ne in tqdm(chunk_indices(np.arange(seg_duration)),desc = f'Saving trimmed traces shank {shank}'):
+                trimmed_bin[concat_offset+no:concat_offset+ne] = recording_corrected.get_traces(
+                        segment_index=0,
+                        start_frame = no, 
+                        end_frame=ne).round().astype('int16')
+        trimmed_rec = load_spks_binary_to_spikeinterface(trimmed_filename,trimmed_meta)
+        _ , motion_info_trimmed = correct_motion(trimmed_rec, preset='dredge',
+                                                    output_motion_info=True, **job_kwargs) 
+        # correct the motion for each
+        t = motion_info_trimmed['motion'].temporal_bins_s[0]
+        d = motion_info_trimmed['motion'].displacement[0]
+        for irec,(o,e) in enumerate(metadata['file_offsets']):
+            t = motion_info_trimmed['motion'].temporal_bins_s[0]
+            d = motion_info_trimmed['motion'].displacement[0]
+            ii = (t> concat_offsets[irec]/metadata['sampling_rate']) & (t< concat_offsets[irec+1]/metadata['sampling_rate']) 
+            d = np.median(d[ii],axis = 0)
+            print(f'Recording {irec} for {shank} has {d} um shift.')
+            motion_objs[irec]['motion'].displacement[0] = (motion_objs[irec]['motion'].displacement[0] + d)
+        # correct the offset in the raw concatenated file
+        #                                                
+        def _interpolate_rec_parallel(ori_start,new_start,new_end,out,recording_corrected,channels):
+            out[ori_start+new_start:ori_start+new_end,channels] = recording_corrected.get_traces(segment_index=0,
+                                                                            start_frame = new_start, 
+                                                                            end_frame=new_end).round().astype('int16')
+        for irec,(o,e) in enumerate(metadata['file_offsets']):
+            # overwrite the object otherwise it doesnt apply the correct interpolation.
+            motion = motion_objs[irec]['motion'].from_dict(motion_objs[irec]['motion'].to_dict())
+            rec_ori = entire_rec.frame_slice(
+                start_frame=o,
+                end_frame=e).select_channels(np.array(metadata['channel_idx'])[chan_sel].astype(int)).astype("float32")
+            rec_corrected = interpolate_motion(
+                    recording=rec_ori,
+                    motion=motion,
+                    border_mode="force_extrapolate",
+                    spatial_interpolation_method="kriging",
+                    sigma_um=30.)
+            from joblib import Parallel, delayed
+            Parallel(n_jobs = n_jobs)(delayed(_interpolate_rec_parallel)(ori_start = o, new_start = no,
+                new_end = ne, out = binarymmap,
+                recording_corrected = rec_corrected,
+                channels = np.array(metadata['channel_idx'])[chan_sel].astype(int)) 
+                for no,ne in tqdm(chunk_indices(np.arange(rec_corrected.get_num_frames())),
+                            desc = f'Saving corrected binary file from shank {shank}'))
+        np.save(Path(binaryfilepath).parent/f'motion_shank{shank}.npy', motion_objs)
+    return binaryfilepath
+    
+
+def dredge_motion_correct_binary_file(binaryfilepath, nchannels, sampling_rate, 
+                              channel_coords, 
+                              channel_shank, 
+                              output_folder,
+                              overwrite = True,
+                              is_filtered = True,
+                              output_dtype = 'int16',#'float32',
+                              n_jobs = 10):
+    # then do the motion correction using dredge
+    # we'll use the dredge implementation from spike interface..
+    import spikeinterface.full as si
+    global_job_kwargs = dict(n_jobs = n_jobs, chunk_duration = "1s", 
+                             pool_engine = "process",
+                             max_threads_per_worker = 4)
+    si.set_global_job_kwargs(**global_job_kwargs)
+    rec = si.read_binary(binaryfilepath, 
+                         sampling_frequency=sampling_rate,
+                         dtype = np.int16,  # hardcoded for now
+                         num_channels = nchannels,
+                         is_filtered = is_filtered)
+    rec.is_filtered = is_filtered
+
+    rec.set_channel_locations(channel_coords.astype(int))
+    rec.set_channel_groups(channel_shank)
+
+    mo = si.correct_motion(rec, preset='dredge')
+
+    mo.save(folder=pjoin(output_folder,'motion'),
+            dtype = output_dtype, 
+            format= 'binary')
+
+    # move to filtered_recording
+    del rec
+    del mo
+    del si
+    outfile = pjoin(output_folder,'motion','traces_cached_seg0.raw')
+    if overwrite:
+        import shutil
+        shutil.move(outfile,binaryfilepath)
+        outfile = binaryfilepath
+    # shutil.rmtree(pjoin(foldername,'motion'))        
+    return outfile
