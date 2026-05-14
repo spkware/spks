@@ -229,13 +229,13 @@ def gaussian_function(sigma):
     kernel = np.exp(-(x/sigma)**2/2)/(sigma*np.sqrt(2*np.pi))
     return kernel
 
-def alpha_function(N, amplitude = 1, t_rise = 2, t_decay = 250, srate = 1000.,norm = True):
+def alpha_function(N, amplitude = 1,
+                   t_rise = 0.002, # in s
+                   t_decay = 0.025, # in s
+                   srate = 1000.,
+                   norm = True):
 
-    t_rise = t_rise/srate;
-    t_decay = t_decay/srate;
-    
-    fun_max  = (t_rise*t_decay/(t_decay-t_rise)) * np.log(t_decay-t_rise);
-    normalization_factor = 1; #%(exp(-fun_max/t_rise) - exp(-fun_max/t_decay))/(t_rise-t_decay);
+    normalization_factor = 1; 
     ii = np.arange(0,N)
     kernel = np.hstack([np.zeros(N-1),
                         amplitude*(1.0/(normalization_factor*(t_decay-t_rise))) * (np.exp(-((ii/srate)/t_decay))
