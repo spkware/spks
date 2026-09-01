@@ -347,7 +347,8 @@ class Clusters():
         if not self.spike_amplitudes is None:
             self.spike_amplitudes = np.delete(self.spike_amplitudes,doubled)
         if not self.spike_positions is None:
-            self.spike_positions = np.delete(self.spike_positions,doubled)
+            # positions are nspikes x 2, so the spikes are along the first axis
+            self.spike_positions = np.delete(self.spike_positions,doubled, axis = 0)
         if not self.spike_templates is None:
             self.spike_templates = np.delete(self.spike_templates,doubled)
         if not self.spike_template_amplitudes is None:
@@ -366,6 +367,8 @@ class Clusters():
             np.save(folder/'amplitudes.npy', self.spike_template_amplitudes)
         if not self.spike_templates is None:
             np.save(folder/'spike_templates.npy', self.spike_templates)
+        if not self.spike_positions is None:
+            np.save(folder/'spike_positions.npy', self.spike_positions)
         if not self.spike_pc_features is None:
             np.save(folder/'pc_features.npy', self.spike_pc_features)
     
@@ -403,8 +406,17 @@ class Clusters():
             # get the spike positions and amplitudes from the average templates
             self.spike_amplitudes = np.take(templates_amplitude,
                                             self.spike_templates)*self.spike_template_amplitudes
-            # if there is a spike_positions.npy file, take the positions from there.
-            self.spike_positions = self._load_optional('spike_locations.npy',None)
+            # kilosort writes spike_positions.npy and spikeinterface writes spike_locations.npy.
+            self.spike_positions = None
+            for posfile in ['spike_positions.npy','spike_locations.npy']:
+                positions = self._load_optional(posfile,None)
+                if positions is None:
+                    continue
+                if len(positions) == len(self.spike_times):
+                    self.spike_positions = positions
+                    break
+                print('[Clusters] {0} has {1} rows for {2} spikes, computing the positions from the features instead.'.format(
+                    posfile,len(positions),len(self.spike_times)))
             if self.spike_positions is None: # compute from pc_features
                 if not self.spike_pc_features is None or not self.template_pc_features_ind is None:
                     if self.spike_pc_features.shape[0] == len(self.spike_times):
