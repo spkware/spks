@@ -15,7 +15,7 @@ def read_mux(mux_table):
     return n_adc,n_channels_per_adc,adc_channel_groups
 
 def read_imro(imro):
-    probe_type,nchannels = [int(i) for i in imro[0].split(',')][:2]
+    probe_type,nchannels = [int(i.replace('NP','')) for i in imro[0].split(',')][:2]
     
     if not probe_type in [0,1020,1030,1100,1120,1121,1122,1123,1200,1300, # NP 1.0-like
                           21,2003,2004, # NP 2.0, single multiplexed shank
