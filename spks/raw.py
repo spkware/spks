@@ -109,17 +109,22 @@ default_filter_pipeline_par = [dict(function = 'bandpass_filter_gpu',
                                dict(function = 'global_car_gpu',
                                     return_gpu = False)]
 
+# Steps of the filter pipeline that select channels. These run once for the whole
+# recording, before the other steps, when exporting with RawRecording.to_binary.
+CHANNEL_SELECTION_STEPS = ['remove_channels_without_signal']
+
 def parse_filter_pipeline(filterlist):
     '''
-    Filter parameters are a list of dictionaries. 
+    Filter parameters are a list of dictionaries.
     Parameters:
         filterlist: list
-            Each dictionary has a "function" key that specifies which function to use. 
-    
-    Returns: 
+            Each dictionary has a "function" key that specifies which function to use.
+
+    Returns:
         filters: list
             List of functions that take the data as input and can be applied sequentially.
-            
+            Channel selection steps (CHANNEL_SELECTION_STEPS) are skipped, RawRecording.to_binary applies them.
+
     '''
     from spks.raw import (bandpass_filter_gpu,
                           bandstop_filter_gpu,
@@ -128,6 +133,8 @@ def parse_filter_pipeline(filterlist):
     functions = []
     for f in filterlist:
         func = f['function']
+        if func in CHANNEL_SELECTION_STEPS:
+            continue
         par = f.copy()
         del par['function']
         functions.append(partial(eval(func),**par))
@@ -156,7 +163,248 @@ def bandstop_filter_gpu(data,sampling_rate, lowpass, highpass, order = 3, device
     b,a = butter(order,[lowpass/sratecoeff, highpass/sratecoeff], btype='bandstop')
     return filtfilt_chunk(data, a , b, device = device, return_gpu = return_gpu)
 
-class RawRecording(object): 
+def _ap_is_highpassed(recording):
+    '''Return True when the imro table of the first file has the AP hardware highpass on (Neuropixels 1.0).'''
+    imro = recording.metadata[0].get('imro_table', None)
+    if imro is None or not 'ap_highpass' in imro.columns:
+        return False
+    return bool(np.any(imro['ap_highpass'].values == 1))
+
+def _neighbour_median(X, neighbours, max_elements = int(5e7)):
+    '''
+    Return the median of the neighbours of each channel.
+
+    X is a [TIMExCHANNELS] tensor, neighbours is a [CHANNELSxMAX_NEIGHBOURS] tensor of
+    column indices padded with -1. Channels without neighbours get NaN.
+    '''
+    ref = torch.empty_like(X)
+    valid = neighbours >= 0
+    idx = neighbours.clamp(min = 0)
+    nan = torch.tensor(float('nan'), device = X.device, dtype = X.dtype)
+    batch = max(1, int(max_elements // (X.shape[0]*neighbours.shape[1])))
+    for i in range(0, X.shape[1], batch):
+        nb = torch.where(valid[i:i+batch][None], X[:, idx[i:i+batch]], nan)
+        ref[:, i:i+batch] = torch.nanmedian(nb, dim = 2).values
+    return ref
+
+@torch.no_grad()
+def channel_signal_stats(recording, channels = None,
+                         measures = ('amplitude','correlation','coherence'),
+                         n_chunks = 30,
+                         chunk_duration = 2.,
+                         neighbour_radius = 300.,
+                         amplitude_band = (300., 13000.),
+                         lfp_band = None,
+                         nfft = 1024,
+                         sample_shifts = None,
+                         device = None):
+    '''
+    Compute per channel measures of signal on chunks spread through a RawRecording.
+
+    Parameters:
+        recording: RawRecording
+        channels: list
+            Channels to evaluate (default: recording.channel_info.channel_idx).
+            Channels without coordinates in channel_info (e.g. the sync channel) are left out.
+        measures: list
+            Any of 'amplitude', 'correlation', 'coherence'.
+        n_chunks, chunk_duration: int, float
+            Number of chunks evenly spaced through the recording and duration of each chunk in seconds.
+        neighbour_radius: float
+            Neighbours of a channel are the channels on the same shank within this distance (um) in the channel map.
+        amplitude_band: tuple
+            Band (Hz) of the median absolute deviation.
+        lfp_band: tuple
+            Band (Hz) of the correlation and coherence with the neighbours. None picks 1-300 Hz,
+            or 300-3000 Hz when the AP stream is hardware highpassed (Neuropixels 1.0).
+        nfft: int
+            Segment length of the phase coherence (Hann window, 50% overlap).
+        sample_shifts: array
+            ADC sample shifts of the evaluated channels; the data are phase shifted first when given.
+        device: str
+            Torch device (default cuda when available).
+
+    Returns:
+        stats: dict
+            'channels', 'mad' (int16 units, amplitude_band), 'correlation' and 'coherence' (lfp_band):
+            the median across chunks of each measure, NaN when not computed or when a channel has no neighbours.
+            Also 'n_neighbours' and the parameters used.
+
+    The reference of each channel is the median of its neighbours. The correlation is
+    computed from the cross-spectrum within lfp_band; the coherence is the phase coherence
+    |mean(Sxy/|Sxy|)| over Welch segments, averaged over the frequencies in lfp_band.
+    '''
+    device = check_cuda(device)
+    measures = [m for m in measures]
+    for m in measures:
+        if not m in ['amplitude','correlation','coherence']:
+            raise ValueError(f'[channel_signal_stats] - unknown measure {m}')
+    info = recording.channel_info
+    if channels is None:
+        channels = info.channel_idx.values
+    channels = np.array(channels, dtype = int).flatten()
+    has_coords = np.isin(channels, info.channel_idx.values)
+    channels = channels[has_coords]
+    if not sample_shifts is None:
+        sample_shifts = np.asarray(sample_shifts, dtype = np.float32).flatten()[has_coords]
+    rows = [np.where(info.channel_idx.values == c)[0][0] for c in channels]
+    coords = np.stack([np.asarray(info.channel_coord.values[r], dtype = float) for r in rows])
+    shanks = np.asarray(info.channel_shank.values[rows]).flatten()
+    nchannels = len(channels)
+    srate = float(recording.sampling_rate)
+    if lfp_band is None:
+        if _ap_is_highpassed(recording):
+            lfp_band = (300., 3000.)
+            print('[channel_signal_stats] - AP stream is highpassed; using 300-3000 Hz for correlation and coherence.')
+        else:
+            lfp_band = (1., 300.)
+    # neighbours on the same shank within the radius, from the channel map
+    dist = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis = 2)
+    is_neighbour = (dist <= neighbour_radius) & (shanks[:, None] == shanks[None, :])
+    np.fill_diagonal(is_neighbour, False)
+    n_neighbours = is_neighbour.sum(axis = 1)
+    neighbours = -np.ones((nchannels, max(1, n_neighbours.max())), dtype = np.int64)
+    for i in range(nchannels):
+        neighbours[i, :n_neighbours[i]] = np.where(is_neighbour[i])[0]
+    if np.any(n_neighbours == 0) and ('correlation' in measures or 'coherence' in measures):
+        print(f'[channel_signal_stats] - channels without neighbours within {neighbour_radius} um: {channels[n_neighbours == 0]}')
+    neighbours = torch.from_numpy(neighbours).to(device)
+    # chunks spread through the recording
+    nsamples = int(min(recording.shape[0], int(chunk_duration*srate)))
+    if nsamples < nfft and 'coherence' in measures:
+        raise ValueError(f'[channel_signal_stats] - chunks of {nsamples} samples are shorter than nfft {nfft}.')
+    starts = np.unique(np.linspace(0, recording.shape[0] - nsamples, n_chunks).astype(int))
+    freqs = torch.fft.rfftfreq(nsamples, 1./srate).to(device)
+    lfp_bins = (freqs >= lfp_band[0]) & (freqs <= lfp_band[1])
+    seg_freqs = torch.fft.rfftfreq(nfft, 1./srate).to(device)
+    seg_bins = (seg_freqs >= lfp_band[0]) & (seg_freqs <= lfp_band[1])
+    if 'coherence' in measures and not torch.any(seg_bins):
+        raise ValueError(f'[channel_signal_stats] - no frequencies of nfft {nfft} within {lfp_band} Hz.')
+    window = torch.hann_window(nfft, device = device)
+    res = {m:[] for m in measures}
+    for s in tqdm(starts, desc = 'Measuring channel signal'):
+        X = recording._get_trace(np.arange(s, s + nsamples), [c for c in channels],
+                                 return_preprocessed = False, return_voltage = False)
+        X = torch.from_numpy(np.asarray(X, dtype = np.float32)).to(device)
+        X = X - X.mean(dim = 0)
+        if not sample_shifts is None:
+            X = phase_shift_gpu(X, sample_shifts, device = device, return_gpu = True)
+        if 'amplitude' in measures:
+            F = bandpass_filter_gpu(X, srate, amplitude_band[0], amplitude_band[1],
+                                    device = device, return_gpu = True)
+            res['amplitude'].append(tensor_to_numpy(
+                torch.median(torch.abs(F - torch.median(F, dim = 0).values), dim = 0).values))
+            del F
+        if 'correlation' in measures or 'coherence' in measures:
+            ref = _neighbour_median(X, neighbours)
+        if 'correlation' in measures:
+            Xf = torch.fft.rfft(X, dim = 0)[lfp_bins]
+            Yf = torch.fft.rfft(ref, dim = 0)[lfp_bins]
+            num = (Xf * torch.conj(Yf)).real.sum(dim = 0)
+            den = torch.sqrt((torch.abs(Xf)**2).sum(dim = 0) * (torch.abs(Yf)**2).sum(dim = 0))
+            res['correlation'].append(tensor_to_numpy(num / den.clamp_min(1e-12)))
+            del Xf, Yf
+        if 'coherence' in measures:
+            Xs = torch.fft.rfft(X.T.unfold(1, nfft, nfft//2) * window, dim = 2)[:, :, seg_bins]
+            Ys = torch.fft.rfft(ref.T.unfold(1, nfft, nfft//2) * window, dim = 2)[:, :, seg_bins]
+            S = Xs * torch.conj(Ys)
+            phase = torch.abs(torch.mean(S / (torch.abs(S) + 1e-12), dim = 1))
+            res['coherence'].append(tensor_to_numpy(phase.mean(dim = 1)))
+            del Xs, Ys, S
+        del X
+    free_gpu()
+    nan = np.full(nchannels, np.nan, dtype = np.float32)
+    stats = dict(channels = channels,
+                 mad = np.median(np.stack(res['amplitude']), axis = 0) if 'amplitude' in measures else nan,
+                 correlation = np.median(np.stack(res['correlation']), axis = 0) if 'correlation' in measures else nan,
+                 coherence = np.median(np.stack(res['coherence']), axis = 0) if 'coherence' in measures else nan,
+                 n_neighbours = n_neighbours,
+                 neighbour_radius = float(neighbour_radius),
+                 amplitude_band = np.array(amplitude_band, dtype = float),
+                 lfp_band = np.array(lfp_band, dtype = float),
+                 n_chunks = len(starts),
+                 chunk_duration = nsamples/srate)
+    return stats
+
+def detect_low_amplitude_channels(stats, mad_fraction = 0.3):
+    '''Return a boolean array of channels with a median absolute deviation below mad_fraction of the median across channels.'''
+    mad = np.asarray(stats['mad'])
+    return mad < mad_fraction*np.nanmedian(mad)
+
+def detect_low_correlation_channels(stats, correlation_threshold = 0.3):
+    '''Return a boolean array of channels with a correlation with their neighbours below the threshold. Channels without neighbours are kept.'''
+    correlation = np.asarray(stats['correlation'])
+    return np.isfinite(correlation) & (correlation < correlation_threshold)
+
+def detect_low_coherence_channels(stats, coherence_threshold = 0.3):
+    '''Return a boolean array of channels with a phase coherence with their neighbours below the threshold. Channels without neighbours are kept.'''
+    coherence = np.asarray(stats['coherence'])
+    return np.isfinite(coherence) & (coherence < coherence_threshold)
+
+CHANNEL_SIGNAL_METHODS = dict(amplitude = detect_low_amplitude_channels,
+                              correlation = detect_low_correlation_channels,
+                              coherence = detect_low_coherence_channels)
+
+def remove_channels_without_signal(recording, channels = None,
+                                   methods = ('amplitude','coherence'),
+                                   mad_fraction = 0.3,
+                                   correlation_threshold = 0.3,
+                                   coherence_threshold = 0.3,
+                                   **kwargs):
+    '''
+    Find the channels without signal in a RawRecording.
+
+    Parameters:
+        recording: RawRecording
+        channels: list
+            Channels to consider (default: recording.channel_info.channel_idx).
+            Channels without coordinates (e.g. the sync channel) are kept.
+        methods: list
+            Any of 'amplitude' (low median absolute deviation), 'correlation' (low correlation
+            with the neighbours) and 'coherence' (low phase coherence with the neighbours).
+            A channel is removed when any of the methods flags it.
+        mad_fraction, correlation_threshold, coherence_threshold: float
+            Threshold of each method.
+        kwargs:
+            Passed to channel_signal_stats (neighbour_radius, n_chunks, chunk_duration,
+            amplitude_band, lfp_band, nfft, sample_shifts, device).
+
+    Returns:
+        kept: array of the kept channels
+        removed: array of the removed channels
+        info: dict with the methods, a boolean array of flagged channels per method ('flagged_<method>') and the stats.
+
+    As a step of filter_pipeline_par:
+        dict(function = 'remove_channels_without_signal', methods = ['amplitude','coherence'])
+    '''
+    methods = [m for m in methods]
+    for m in methods:
+        if not m in CHANNEL_SIGNAL_METHODS.keys():
+            raise ValueError(f'[remove_channels_without_signal] - unknown method {m}, use {list(CHANNEL_SIGNAL_METHODS.keys())}')
+    if channels is None:
+        channels = recording.channel_info.channel_idx.values
+    channels = np.array(channels, dtype = int).flatten()
+    stats = channel_signal_stats(recording, channels = channels, measures = methods, **kwargs)
+    thresholds = dict(amplitude = dict(mad_fraction = mad_fraction),
+                      correlation = dict(correlation_threshold = correlation_threshold),
+                      coherence = dict(coherence_threshold = coherence_threshold))
+    flagged = np.zeros(len(stats['channels']), dtype = bool)
+    info = dict(stats, methods = ','.join(methods))
+    for m in methods:
+        f = CHANNEL_SIGNAL_METHODS[m](stats, **thresholds[m])
+        info[f'flagged_{m}'] = f
+        flagged |= f
+    removed = stats['channels'][flagged]
+    kept = channels[~np.isin(channels, removed)]
+    info['removed_channels'] = removed
+    for i in np.where(flagged)[0]:
+        by = [m for m in methods if info[f'flagged_{m}'][i]]
+        print(f"[remove_channels_without_signal] - channel {stats['channels'][i]} removed ({','.join(by)}): "
+              f"mad {stats['mad'][i]:.2f} correlation {stats['correlation'][i]:.3f} coherence {stats['coherence'][i]:.3f}")
+    print(f'[remove_channels_without_signal] - removed {len(removed)} of {len(channels)} channels.')
+    return kept, removed, info
+
+class RawRecording(object):
     def __init__(self,files, 
                  filter_pipeline_par = [dict(**d) for d in
                                         default_filter_pipeline_par],
@@ -195,16 +443,68 @@ Gets the sampling rate into all filters that need it and initializes filter func
                     self.filter_pipeline_par[i][k] = self.sampling_rate
                 if (k == 'sample_shifts' and
                     'adc_channel_groups' in self.metadata[0].keys()):
-                    # TODO handle when there are more channels than possible
-                    self.filter_pipeline_par[i][k] = shifts_from_adc_channel_groups(self.metadata[0]['adc_channel_groups'])[1]
-                    if not channels is None:
-                        tt = self.filter_pipeline_par[i][k]
-                        if np.max(channels)>len(tt)-1:
-                            tt = np.zeros(np.max(channels)+1)
-                            tt[:len(self.filter_pipeline_par[i][k])] = self.filter_pipeline_par[i][k]
-                        self.filter_pipeline_par[i][k] = tt[channels]
+                    self.filter_pipeline_par[i][k] = self._channel_sample_shifts(channels)
         self.filter_pipeline = parse_filter_pipeline(self.filter_pipeline_par)
-        
+
+    def _channel_sample_shifts(self, channels = None):
+        '''Return the ADC sample shifts of the channels (all channels when None), or None without an ADC table.'''
+        if not 'adc_channel_groups' in self.metadata[0].keys():
+            return None
+        # TODO handle when there are more channels than possible
+        shifts = shifts_from_adc_channel_groups(self.metadata[0]['adc_channel_groups'])[1]
+        if channels is None:
+            return shifts
+        channels = np.array(channels, dtype = int)
+        if np.max(channels) > len(shifts)-1: # the sync channel has no shift
+            tt = np.zeros(np.max(channels)+1)
+            tt[:len(shifts)] = shifts
+            shifts = tt
+        return shifts[channels]
+
+    def detect_channels_without_signal(self, channels = None,
+                                       methods = ('amplitude','coherence'),
+                                       filter_pipeline_par = None,
+                                       **kwargs):
+        '''
+        Find the channels without signal (see remove_channels_without_signal).
+
+        Parameters:
+            channels: list
+                Channels to consider (default: channel_info.channel_idx).
+            methods: list
+                Any of 'amplitude', 'correlation' and 'coherence'.
+            filter_pipeline_par: list
+                Pipeline the data go through (default: self.filter_pipeline_par). When it has
+                a phase_shift_gpu step the data are phase shifted, and the band of its
+                bandpass_filter_gpu step is the amplitude_band, unless these are given in kwargs.
+            kwargs:
+                Thresholds and parameters of remove_channels_without_signal and channel_signal_stats.
+
+        Returns:
+            kept, removed, info (also stored in self.channel_signal)
+
+        Example:
+            rec = RawRecording(files)
+            kept, removed, info = rec.detect_channels_without_signal(methods = ['coherence'])
+        '''
+        if filter_pipeline_par is None:
+            filter_pipeline_par = self.filter_pipeline_par
+        if channels is None:
+            channels = self.channel_info.channel_idx.values
+        channels = np.array(channels, dtype = int).flatten()
+        functions = [f['function'] for f in filter_pipeline_par]
+        if not 'sample_shifts' in kwargs.keys() and 'phase_shift_gpu' in functions:
+            kwargs['sample_shifts'] = self._channel_sample_shifts(channels)
+        if not 'amplitude_band' in kwargs.keys() and 'bandpass_filter_gpu' in functions:
+            f = filter_pipeline_par[functions.index('bandpass_filter_gpu')]
+            kwargs['amplitude_band'] = (f['lowpass'], f['highpass'])
+        if not 'device' in kwargs.keys():
+            kwargs['device'] = self.device
+        kept, removed, info = remove_channels_without_signal(self, channels = channels,
+                                                             methods = methods, **kwargs)
+        self.channel_signal = info
+        return kept, removed, info
+
     def __len__(self):
         return self.shape[0]
 
@@ -342,8 +642,13 @@ Gets the sampling rate into all filters that need it and initializes filter func
         # create a binary file
         '''
         Exports to binary file and a channelmap.
+
+        Channel selection steps in filter_pipeline_par (CHANNEL_SELECTION_STEPS, e.g.
+        dict(function = 'remove_channels_without_signal', methods = ['amplitude','coherence']))
+        run first, wherever they are in the list; the other steps, including the common
+        average reference, only see the kept channels.
         '''
-        if not str(filename).endswith('.bin'): 
+        if not str(filename).endswith('.bin'):
             filename += '.bin'
         from .sync import unpackbits_gpu
         if chunks is None:
@@ -353,6 +658,18 @@ Gets the sampling rate into all filters that need it and initializes filter func
             os.makedirs(os.path.dirname(filename))
         if channels is None:
             channels = np.arange(self.shape[1], dtype = int)
+        channels = np.array(channels, dtype = int).flatten()
+        filter_pipeline_par = [dict(f) for f in filter_pipeline_par]
+        selection_steps = [f for f in filter_pipeline_par if f['function'] in CHANNEL_SELECTION_STEPS]
+        filter_pipeline_par = [f for f in filter_pipeline_par if not f['function'] in CHANNEL_SELECTION_STEPS]
+        channel_selection = []
+        for step in selection_steps:
+            par = {k:v for k,v in step.items() if k != 'function'}
+            channels, removed, info = self.detect_channels_without_signal(
+                channels = channels,
+                filter_pipeline_par = filter_pipeline_par,
+                **par)
+            channel_selection.append(info)
         self._parse_filter_pipeline_par(filter_pipeline_par, channels = channels)
         filter_pipeline_par = self.filter_pipeline_par
         out = np.memmap(filename,
@@ -388,8 +705,9 @@ Gets the sampling rate into all filters that need it and initializes filter func
         channel_positions = []
         conversion_f = []
         channel_shank = []
-        channels = self.channel_info.channel_idx.values.flatten()
-        for c in [c for c in channels]:
+        # the exported channels that are in the channel map (leaves out the sync channel)
+        channels = [c for c in channels if c in self.channel_info.channel_idx.values]
+        for c in channels:
             gain = self.channel_info.conversion_factor[self.channel_info.channel_idx == c].values
             coord = self.channel_info.channel_coord[self.channel_info.channel_idx == c].values
             shank = self.channel_info.channel_shank[self.channel_info.channel_idx == c].values
@@ -410,6 +728,10 @@ Gets the sampling rate into all filters that need it and initializes filter func
                         channel_shank = np.stack(channel_shank).flatten(),
                         file_offsets = self.file_sample_offsets,
                         filenames = [os.path.basename(f) for f in self.files])
+        if len(channel_selection):
+            removed = np.hstack([s['removed_channels'] for s in channel_selection]).astype(int)
+            metadata['removed_channels'] = removed
+            metadata['channel_signal'] = channel_selection[-1] # stats of the last selection step
         # sync data
         if not sync_channel is None:
             sync = np.hstack(sync)

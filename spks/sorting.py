@@ -100,13 +100,17 @@ def run_kilosort(sessionfiles = [],
                                               return_gpu = False)]):
         '''
         Runs kilosort given binary files, returns a folder with the results.
+
+        To leave out the channels without signal, add a step to filter_pipeline_par:
+            dict(function = 'remove_channels_without_signal', methods = ['amplitude','coherence'])
+        This runs before the other steps (see RawRecording.to_binary).
         '''
-        
+
         using_scratch = False
         if foldername is None:
                 foldername = create_temporary_folder(temporary_folder, prefix=f'ks{version}_sorting')
                 using_scratch = True
-                
+        filter_pipeline_par = [dict(f) for f in filter_pipeline_par] # the default is shared across calls
         for f in filter_pipeline_par:
                 if 'lowpass' in f.keys() and not lowpass is None:
                         f['lowpass'] = lowpass
