@@ -46,6 +46,34 @@ def firing_rate(sp,t_min = None,t_max=None):
     # firing rate is just the number of spikes divided by the time interval
     return float(np.sum((sp>=t_min) & (sp<=t_max)))/(t_max-t_min)
 
+def isi_violations(ts,refractory_time = 0.0015, censored_time = 0.0002):
+    """
+    Number of *refractory period violations*.
+
+    Counts the inter-spike intervals longer than *censored_time* and shorter than or
+    equal to *refractory_time*. This is the :math:`n_v` used by isi_contamination and
+    isi_contamination_hill.
+
+    Parameters
+    ------------
+    ts : np.array
+        Sorted timestamps in the same units as refractory_time and censored_time
+    refractory_time: numeric value, 0.0015
+        estimated refractory time to compute violations to the refractory period.
+    censored_time: numeric value, 0.0002
+        time shorter than the refractory time to discard, for instance because of
+        errors in spike sorting (e.g. double counted spikes)
+
+    Return
+    ------------
+    n_violations: int
+        Number of inter-spike intervals that violate the refractory period.
+
+    Joao Couto - spks 2026
+    """
+    isi = np.diff(ts)  # inter-spike intervals
+    return int(np.sum((isi <= refractory_time) & (isi > censored_time)))
+
 def isi_contamination(ts,refractory_time = 0.0015, censored_time = 0.0002, T = None):
     r"""
     False positives because of *refractory period violations*.
@@ -86,15 +114,17 @@ See also Hill et al. 2011 DOI: https://doi.org/10.1523/JNEUROSCI.0971-11.2011
     ------------
     isi_contamination: float
         Value between 0 and 1 - roughly. Units above 0.1 - 0.2 are likely too contaminated
-         to be called single units.     
+         to be called single units.
+        NaN when the term under the square root is negative; the equation has no
+        solution there, which happens for heavily contaminated units. isi_violations
+        and isi_contamination_hill still give a value for those.
 
     Joao Couto - spks 2023
     """
 
     # sp are sorted since compute the ISI
     N = len(ts)  # number of spikes
-    isi = np.diff(ts)  # inter-spike intervals
-    n_v = np.sum((isi <= refractory_time) & (isi>censored_time));   # violations between the censored time and the refractory time
+    n_v = isi_violations(ts, refractory_time, censored_time)  # violations between the censored time and the refractory time
 
     # this is the method/equation described in Llobet et al. 2022 - https://doi.org/10.1101/2022.02.08.479192
     # I assumed n_v is the number of contaminated isis in equation 3
@@ -113,8 +143,20 @@ def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0002, 
     """
     False positives because of *refractory period violations*.
 
-    In approximation, if gives the false positives rate as a fraction of the unit firing rate.  
-    The metric is described in Hill et al. 2011 DOI: https://doi.org/10.1523/JNEUROSCI.0971-11.2011
+    Gives the rate of false positives as a fraction of the unit firing rate. Hill et al. 2011
+    (DOI: https://doi.org/10.1523/JNEUROSCI.0971-11.2011) relate the violations to the
+    fraction of false positives :math:`f_p` with
+
+    .. math::
+        n_v = \\frac{2 t_r N^2 f_p (1 - f_p)}{T}
+
+    This function returns the first order approximation (as in ecephys and SpikeInterface),
+    which drops the :math:`(1 - f_p)` term:
+
+    .. math::
+        f_p \\approx \\frac{n_v T}{2 N^2 t_r}
+
+    with :math:`t_r` the refractory time minus the censored time.
 
     Parameters
     ------------
@@ -122,37 +164,36 @@ def isi_contamination_hill(ts,refractory_time = 0.0015, censored_time = 0.0002, 
         List of timestamps in the same units as refractory_time and censored_time
     refractory_time: numeric value, 0.0015 
         estimated refractory time to compute violations to the refractory period.
-    censored_time: numeric value, 0
-        time shorter than the refractory time to discard, for instance because of 
-        errors in spike sorting (e.g. double counted spikes)  
+    censored_time: numeric value, 0.0002
+        time shorter than the refractory time to discard, for instance because of
+        errors in spike sorting (e.g. double counted spikes)
     T: int, None
-        duration of the recording or observation (to compute the rate). By default it 
-        is taken as the time of the first and last spike. That is fair because if the 
+        duration of the recording or observation (to compute the rate). By default it
+        is taken as the time of the first and last spike. That is fair because if the
         unit was only firing during a fraction of the experiment, the estimate of false
-         positives would be lower if one takes the duration of the recording.  
+         positives would be lower if one takes the duration of the recording.
 
     Return
     ------------
     isi_contamination: float
-        Value between 0 and 1 - roughly. Units above 0.1 - 0.2 are likely too contaminated
-         to be called single units.     
+        Fraction of false positives, dimensionless. Units above 0.1 - 0.2 are likely too
+        contaminated to be called single units. The approximation underestimates the
+        contamination above about 0.2 and can exceed 1 for heavily contaminated units.
 
     Joao Couto - spks 2023
     """
 
     # sp are sorted since compute the ISI
     N = len(ts)  # number of spikes
-    isi = np.diff(ts)  # inter-spike intervals
-    n_v = np.sum((isi <= refractory_time) & (isi>censored_time));   # violations between the censored time and the refractory time
+    n_v = isi_violations(ts, refractory_time, censored_time)  # violations between the censored time and the refractory time
 
     if T is None:  # recording duration
         T = ts[-1]-ts[0]; # duration of the recording (here the time from the first to the last spike)
     # the Hill method (as in ecephys) underestimates the contamination for contaminations above 0.2
     violation_time = 2*N*(refractory_time - censored_time)
     total_rate = N/(T)
-    isi_contam = n_v/violation_time
-    # contam_fraction = violation_rate/total_rate
-    return  isi_contam
+    violation_rate = n_v/violation_time
+    return  violation_rate/total_rate
 
 def presence_ratio(sp,t_min, t_max, min_spikes = 1,nbins = 100):
     """
@@ -270,3 +311,84 @@ time periods (the mean so we can compare units recorded for differnet time durat
     max_depth_range = np.nanmax(med_depths) - np.nanmin(med_depths)
     mean_depth_fluctuation = np.nanmean(np.abs(np.diff(med_depths)))
     return max_depth_range,mean_depth_fluctuation,start_to_end_drift
+
+def firing_range(sp, t_min, t_max, bin_size = 10, percentiles = (5, 95)):
+    '''
+    Range of the firing rate over the recording.
+
+    Bins the spikes in *bin_size* windows between *t_min* and *t_max* and returns the 
+difference between the *percentiles* of the binned firing rate. A unit that drifts out 
+of reach or stops firing for part of the experiment has a range that is large compared 
+to its firing rate. Inspired by the firing_range metric of SpikeInterface.
+
+    Parameters
+    ------------
+    sp : np.array
+        List of timestamps in seconds
+    t_min: numeric value
+        Start time of the recording
+    t_max: numeric value
+        End time of the recording
+    bin_size: numeric value, 10
+        size of the bins in seconds; a last bin shorter than *bin_size* is left out
+    percentiles: tuple, (5, 95)
+        lower and upper percentiles of the binned firing rate
+
+    Return
+    ------------
+    firing_range: float
+        in spikes per second; NaN when the recording holds fewer than 2 bins
+
+    Joao Couto - spks 2026
+    '''
+    nbins = int((t_max - t_min)//bin_size)
+    if nbins < 2:
+        return np.nan
+    edges = t_min + bin_size*np.arange(nbins + 1)
+    rates = np.histogram(sp, edges)[0]/bin_size
+    low, high = np.percentile(rates, percentiles)
+    return float(high - low)
+
+def amplitude_drift(sptimes, amplitudes, t_min, t_max, frac_compare = 0.2, min_spikes = 5):
+    '''
+    Change of the spike amplitude from the start to the end of the recording.
+
+    Ratio between the median amplitude of the spikes in the last *frac_compare* of the 
+recording and that of the spikes in the first *frac_compare*. A stable unit gives 1, 
+a unit that shrinks (e.g. drifts away from the electrodes) less than 1 and one that 
+grows more than 1.
+
+    Parameters
+    ------------
+    sptimes : np.array
+        List of timestamps in the same units as t_min and t_max
+    amplitudes : np.array
+        Amplitude of each spike (e.g. the template amplitudes)
+    t_min: numeric value
+        Start time of the recording
+    t_max: numeric value
+        End time of the recording
+    frac_compare: float, 0.2
+        fraction of the recording compared at the start and at the end
+    min_spikes: int, 5
+        minimum number of spikes in each window
+
+    Return
+    ------------
+    amplitude_drift: float
+        median end amplitude over median start amplitude; NaN when either window has 
+        fewer than *min_spikes* spikes
+
+    Joao Couto - spks 2026
+    '''
+    sptimes = np.asarray(sptimes).flatten()
+    amplitudes = np.asarray(amplitudes).flatten()
+    window = (t_max - t_min)*frac_compare
+    start = amplitudes[sptimes < (t_min + window)]
+    end = amplitudes[sptimes > (t_max - window)]
+    if len(start) < min_spikes or len(end) < min_spikes:
+        return np.nan
+    start = np.median(start)
+    if start == 0:
+        return np.nan
+    return float(np.median(end)/start)

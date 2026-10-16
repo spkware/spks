@@ -55,7 +55,7 @@ def waveforms_position(waveforms,channel_positions,
         center_of_mass.append(np.sum(com,axis = 1)/np.sum(w[idx]))
     return np.array(center_of_mass), np.array(peak_channels), active_electrodes 
 
-def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
+def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100, trough_window = 0.5):
     '''
     Computes the spike waveform metrics for a single waveform
 
@@ -72,19 +72,23 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
         sampling rate used to sample the data
     upsampling_factor: int (default 100)
         factor to 'upsample' the waveform to avoid sampling artifacts in the quantification
+    trough_window: float (default 0.5)
+        the trough is the largest absolute deflection within this many ms of the spike
+        timestamp; sorters do not always align the spike time to the trough
 
     Return
     ------------
 
-    wavemetrics: dict 
+    wavemetrics: dict
         trough_time: (ms) time to the trough in relation to the spike timestamp
-        trough_amplitude: trough amplitude
-        fw3m: full-witdh at 2/3 maximum 
-        trough_gradient: gradient at 0.07 from the trough  
-        peak_gradient: gradient at 0.5ms from the trough
+        trough_amplitude: trough amplitude (the largest deflection, positive for positive waveforms)
+        fw3m: full-witdh at 2/3 maximum
+        trough_gradient: gradient at 0.07 ms from the trough, NaN past the end of the waveform
+        peak_gradient: gradient at 0.5 ms from the trough, NaN past the end of the waveform
         peak_time: time to the peak in relation to the spike timestamp
-        peak_amplitude: amplitude of the peak
+        peak_amplitude: amplitude of the peak, the extremum of opposite sign after the trough
         spike_duration: time between the trough and the peak
+        peak_to_peak: difference between the maximum and the minimum of the waveform
         polarity:  -1 for negative waveforms, 1 for positive
 
     Joao Couto - spks 2023
@@ -122,14 +126,22 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
     tt = np.linspace(t[0],t[-1],int((t[-1]-t[0])*srate*upsampling_factor))
     wv = spline_interp(tt)
     tt *= 1000 # in ms
-    # to estimate the trough we check the absolute maxima of the waveform (0.1 ms) around zero
-    # this will work also if the waveform is positive (but not well tested)
-    # it estimates the trough time, amplitude and gradient
-    # the gradient is 
-    trough_idx = np.argmax(np.abs(wv[(tt>=-0.15) & (tt<=0.15)])) + np.where((tt>=-0.15))[0][0]
+    # the trough is the absolute maxima of the waveform within trough_window (ms) around zero
+    # its sign is the polarity, so this works also if the waveform is positive
+    window = np.where((tt>=-trough_window) & (tt<=trough_window))[0]
+    trough_idx = window[np.argmax(np.abs(wv[window]))]
     trough_amp = wv[trough_idx]
     trough_time = tt[trough_idx]
-    
+    polarity = int(-1 if trough_amp<0 else 1)  # sign of the trough is the polarity
+
+    def gradient_at(time):
+        # gradient in uV/ms (if the waveform is in uV), NaN past the end of the waveform
+        idx = np.where(tt>=time)[0]
+        if len(idx) < 2:
+            return np.nan
+        idx = idx[0]
+        return (wv[idx+1] - wv[idx])/(tt[idx+1]-tt[idx])
+
     # full-width at 2/3 maximum is the width of the spike at 2/3 of the maxima (lets consider the maxima the trought)
     # lets again work in abs to try to make this more general.
     fw3m_idx1 = np.where(np.abs(wv[(tt<=trough_time)])<=np.abs(2*trough_amp/3))[0] # where it intersects before zero
@@ -142,24 +154,22 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
         fw3m_idx2 = fw3m_idx2[0] + np.where(tt>=trough_time)[0][0]+1 # we only need the first index plus the offset
         fw3m =  tt[fw3m_idx2] - tt[fw3m_idx1]
 
-    # trought gradient 
+    # trought gradient
     # the trought gradient is computed 0.07ms from the trought (as per I-Chun et al. 2020)
-    idx = np.where(tt>=(trough_time+0.07))[0][0]
-    # the gradient is in uV/ms (if the waveform is in uV)
-    trough_gradient = (wv[idx+1] - wv[idx])/(tt[idx+1]-tt[idx])
+    trough_gradient = gradient_at(trough_time+0.07)
 
-    # peak gradient 
+    # peak gradient
     # the peak gradient is computed 0.5ms from the trought (as per I-Chun et al. 2020)
-    idx = np.where(tt>=(trough_time+0.5))[0][0]
-    # the gradient is in uV/ms (if the waveform is in uV)
-    peak_gradient = (wv[idx+1] - wv[idx])/(tt[idx+1]-tt[idx])
+    peak_gradient = gradient_at(trough_time+0.5)
 
-    # the peak is at abs max after the trought and after crossing zero
+    # the peak is the extremum of opposite sign after the trough, once the waveform crosses zero
+    # (the maximum for negative waveforms, the minimum for positive ones)
     # we compute the peak to be able to compute the amplitude and the spike duration
-    idx = np.where(wv[trough_idx:]>=0)[0]
+    flipped = -polarity*wv  # the peak is a maximum of the flipped waveform
+    idx = np.where(flipped[trough_idx:]>=0)[0]
     if len(idx):
         idx = idx[0]+trough_idx
-        peak_idx = np.argmax(wv[idx:])+idx
+        peak_idx = np.argmax(flipped[idx:])+idx
         peak_time = tt[peak_idx]
         peak_amp = wv[peak_idx]
         # spike duration is the time between trough and the peak
@@ -179,7 +189,8 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100):
                     peak_time = peak_time,
                     peak_amplitude  = peak_amp,
                     spike_duration = spike_duration,
-                    polarity = int(-1 if trough_amp<0 else 1))  #sign of the through is the polarity
+                    peak_to_peak = wv.max() - wv.min(),
+                    polarity = polarity)
     return wavemetrics
 
 
