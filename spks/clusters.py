@@ -493,6 +493,19 @@ Spike depths will be based on the template position. Re-sort the dataset to fix 
         plot_drift_raster(self.spike_times.astype(np.float32)/self.sampling_rate,
                           self.spike_positions[:,1],
                           self.spike_amplitudes,**kwargs)
+
+    def motion(self):
+        '''Return the motion estimates of this sorting, one list for each dataset.
+
+        The datasets and the sampling rate come from the sorting metadata; a
+        folder without it is read as one dataset.  See
+        ``load_motion_estimates`` for the files read and the format.
+        '''
+        from .io import load_motion_estimates
+        file_offsets = [(0, np.inf)]
+        if not self.metadata is None and 'file_offsets' in self.metadata.keys():
+            file_offsets = self.metadata['file_offsets']
+        return load_motion_estimates(self.folder, file_offsets, self.sampling_rate)
         
     def _load_required(self,file,var = None):
         '''

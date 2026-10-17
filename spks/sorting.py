@@ -156,9 +156,9 @@ def run_kilosort(sessionfiles = [],
                                                                   overwrite = True,
                                                                   output_dtype = 'int16',
                                                                   n_jobs = n_jobs)
-                        dtype = 'int16'            
-                        print('Motion corrected done with dredge so skipping kilosort motion.')
-                        motion_correction = 0
+                        dtype = 'int16'
+                print('Motion corrected done with dredge so skipping kilosort motion.')
+                motion_correction = 0
 
         del tt # RawRecording no longer needed
         channelmappath = pjoin(os.path.dirname(binaryfilepath),'chanMap.mat')
@@ -211,6 +211,7 @@ def run_kilosort(sessionfiles = [],
                                       fshigh = lowpass,
                                       Th = thresholds,
                                       GPU = gpu_index + 1)) # indices are one based ...
+                matlabcommand = kilosort30_matlabcommand
         if version in ['2.5','3.0']:
                 # save the files 
                 savemat(opspath, ops,appendmat = False)
@@ -421,6 +422,12 @@ load(fullfile('{output_folder}','chanMap.mat'))
 % preprocess data to create temp_wh.dat
 rez = preprocessDataSub(ops);
 rez = datashift2(rez, ops.doCorrection); % last input is for shifting data
+% keep the drift estimate that was applied (yblk is only there when datashift2 stores it)
+if ops.doCorrection && isfield(rez,'dshift')
+    dshift = rez.dshift; NT = rez.ops.NT; yblk = [];
+    if isfield(rez.ops,'yblk'), yblk = rez.ops.yblk; end
+    save(fullfile('{output_folder}','drift.mat'),'dshift','yblk','NT');
+end
 
 % ORDER OF BATCHES IS NOW RANDOM, controlled by random number generator
 iseed = 1;                 
@@ -437,6 +444,31 @@ rez.good = get_good_units(rez);  % eliminate widely spread waveforms (likely noi
 fprintf('found %d good units', sum(rez.good>0))
 fprintf('Saving results to Phy  ')
 rezToPhy(rez, '{output_folder}');            % write to Phy
+exit(1);
+'''
+
+kilosort30_matlabcommand = '''
+load(fullfile('{output_folder}','ops.mat'))
+load(fullfile('{output_folder}','chanMap.mat'))
+% This assumes kilosort 3.0 and all are installed and on the path
+% preprocess data to create temp_wh.dat
+rez = preprocessDataSub(ops);
+rez = datashift2(rez, ops.doCorrection); % last input is for shifting data
+% keep the drift estimate that was applied (yblk is only there when datashift2 stores it)
+if ops.doCorrection && isfield(rez,'dshift')
+    dshift = rez.dshift; NT = rez.ops.NT; yblk = [];
+    if isfield(rez.ops,'yblk'), yblk = rez.ops.yblk; end
+    save(fullfile('{output_folder}','drift.mat'),'dshift','yblk','NT');
+end
+
+[rez, st3, tF] = extract_spikes(rez);
+rez = template_learning(rez, tF, st3);
+[rez, st3, tF] = trackAndSort(rez);
+rez = final_clustering(rez, tF, st3);
+rez = find_merges(rez, 1);
+
+fprintf('Saving results to Phy  ')
+rezToPhy2(rez, '{output_folder}');           % write to Phy
 exit(1);
 '''
 

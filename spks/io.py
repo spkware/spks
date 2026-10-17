@@ -250,3 +250,91 @@ def split_binary_file():
     raise NotImplementedError()
 
 
+
+def load_motion_estimates(results_folder, file_offsets, sampling_rate):
+    '''Read the motion estimates a sorting left in its results folder.
+
+    Return one list of estimates for each dataset in ``file_offsets``; a list
+    is empty when no estimate was found.  Each estimate is a dict with
+    ``motion_method``, ``shank`` (None when it covers the whole probe),
+    ``displacement`` (time bins x depth bins, micrometre),
+    ``displacement_times`` (s from the start of the dataset) and
+    ``displacement_depths`` (micrometre, None when the sorter does not keep
+    them).  The sign follows SpikeInterface: a positive displacement means
+    the signal moved towards larger depths, so the Kilosort ``dshift`` is
+    negated.
+
+    Kilosort estimates come from ``ops.npy`` (Kilosort 4) or ``drift.mat``
+    (Kilosort 2.5 and 3.0), one value per batch, and are split at the dataset
+    offsets.  Dredge estimates come from ``motion.npy`` (one dataset) or
+    ``motion_shank<N>.npy`` (one entry per dataset).
+
+    Parameters
+    ----------
+    results_folder : Path or str
+        Sorting output directory.
+    file_offsets : list of tuple of int
+        ``(start_sample, end_sample)`` of each dataset in the sorted binary.
+    sampling_rate : float
+        Sampling rate of the sorted binary.
+
+    Returns
+    -------
+    list of list of dict
+    '''
+    results_folder = Path(results_folder)
+    rows = [[] for _ in file_offsets]
+
+    def add_kilosort(dshift, yblk, batch_size, first_sample = 0):
+        dshift = np.asarray(dshift, dtype = np.float32)
+        if dshift.ndim == 1:
+            dshift = dshift[:, None]
+        depths = None
+        if not yblk is None and np.size(yblk):
+            depths = np.asarray(yblk, dtype = np.float32).flatten()
+        starts = first_sample + np.arange(dshift.shape[0]) * batch_size  # in samples
+        centres = (starts + np.minimum(starts + batch_size, file_offsets[-1][1]))/2 # the last batch is shorter
+        for i, (o, e) in enumerate(file_offsets):
+            idx = (centres >= o) & (centres < e)
+            if not np.any(idx):
+                continue
+            rows[i].append(dict(motion_method = 'kilosort',
+                                shank = None,
+                                displacement = -dshift[idx], # kilosort moves the data by dshift
+                                displacement_times = (centres[idx] - o)/sampling_rate,
+                                displacement_depths = depths))
+
+    def dredge_row(motion, shank):
+        if isinstance(motion, dict) and 'motion' in motion.keys():
+            motion = motion['motion'] # motion_info from spikeinterface
+        if not isinstance(motion, dict):
+            motion = motion.to_dict()
+        return dict(motion_method = 'dredge',
+                    shank = shank,
+                    displacement = np.asarray(motion['displacement'][0], dtype = np.float32),
+                    displacement_times = np.asarray(motion['temporal_bins_s'][0], dtype = np.float64),
+                    displacement_depths = np.asarray(motion['spatial_bins_um'], dtype = np.float32))
+
+    opsfile = results_folder/'ops.npy'
+    if opsfile.exists():
+        ops = np.load(opsfile, allow_pickle = True).item()
+        if not ops.get('dshift', None) is None:
+            tmin = ops.get('settings', {}).get('tmin', 0)
+            add_kilosort(ops['dshift'], ops.get('yblk', None), ops['batch_size'],
+                         first_sample = int(tmin*sampling_rate))
+    driftfile = results_folder/'drift.mat'
+    if driftfile.exists():
+        from scipy.io import loadmat
+        drift = loadmat(driftfile)
+        add_kilosort(drift['dshift'], drift['yblk'], float(np.squeeze(drift['NT'])))
+    motionfile = results_folder/'motion.npy'
+    if motionfile.exists():
+        for m in np.load(motionfile, allow_pickle = True):
+            rows[0].append(dredge_row(m, None))
+    shankfiles = sorted(results_folder.glob('motion_shank*.npy'),
+                        key = lambda f: int(f.stem.replace('motion_shank', '')))
+    for f in shankfiles:
+        shank = int(f.stem.replace('motion_shank', ''))
+        for i, m in enumerate(np.load(f, allow_pickle = True)):
+            rows[i].append(dredge_row(m, shank))
+    return rows

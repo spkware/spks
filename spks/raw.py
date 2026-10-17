@@ -918,7 +918,9 @@ def dredge_motion_correct_binary_file(binaryfilepath, nchannels, sampling_rate,
     rec.set_channel_locations(channel_coords.astype(int))
     rec.set_channel_groups(channel_shank)
 
-    mo = si.correct_motion(rec, preset='dredge')
+    mo, motion_info = si.correct_motion(rec, preset='dredge', output_motion_info = True)
+    # keep the motion estimate next to the sorting results
+    np.save(pjoin(output_folder,'motion.npy'), [motion_info['motion'].to_dict()])
 
     mo.save(folder=pjoin(output_folder,'motion'),
             dtype = output_dtype, 
