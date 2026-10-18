@@ -224,6 +224,14 @@ def run_kilosort(sessionfiles = [],
                                 f.write(matlabcommand.format(output_folder = output_folder))
                         cmd = """matlab -nodisplay -nosplash -r "run('{0}');" """.format(matlabfile)
                         os.system(cmd) # easier to kill than subprocess?
+                driftfile = pjoin(output_folder,'drift.mat')
+                if os.path.exists(driftfile):
+                        from scipy.io import loadmat
+                        drift = loadmat(driftfile)
+                        if 'Wrot' in drift.keys():
+                                # kilosort sorted drift corrected data, unwhiten it into the binary so the
+                                # waveforms come from corrected data
+                                kilosort_unwhiten_binary(ops['ops']['fproc'], binaryfilepath, nchannels, drift['Wrot'])
         elif version == '4.0':
                 if thresholds is None:
                         thresholds = [9.,8.]
@@ -307,9 +315,85 @@ def run_kilosort4(device, foldername, binaryfilepath,
                 positions = compute_spike_positions(st,tF,ops)
                 np.save(Path(foldername)/'spike_positions.npy',np.vstack(positions).T) # overwrite spike positions
                 np.save(Path(foldername)/'channel_positions.npy',coords.astype(float)) # save the correct channel positions
-        del res
+        ops = res[0]
+        if ops.get('dshift', None) is not None:
+                # kilosort sorted drift corrected data, correct the binary the same way so the
+                # waveforms come from corrected data
+                kilosort_drift_correct_binary(binaryfilepath, ops, nchannels, dtype = dtype, device = device)
+        del res, ops
         free_gpu()
         return True
+
+def kilosort_unwhiten_binary(whitened_file, binaryfilepath, nchannels, whitening_matrix,
+                             dtype = 'int16', n_jobs = 4, chunksize = 60000):
+        '''Write the Kilosort 2.5/3.0 processed data, unwhitened, over a binary file.
+
+        ``whitened_file`` (``temp_wh.dat``) holds the data Kilosort sorted:
+        filtered, multiplied by ``rez.Wrot`` (whitening scaled by
+        ``ops.scaleproc``) and drift corrected.  Multiplying by the inverse of
+        ``rez.Wrot`` brings it back to the units of the binary file.  Kilosort
+        shifts the whitened data, so the result is the drift correction seen
+        through the whitening, close to the correction of the original data
+        when the whitening is local.  ``n_jobs`` joblib threads write chunks of
+        ``chunksize`` samples at the same time.
+        '''
+        from joblib import Parallel, delayed
+        dtype = np.dtype(dtype)
+        nsamples = int(os.path.getsize(binaryfilepath)//(nchannels*dtype.itemsize))
+        nwhitened = int(os.path.getsize(whitened_file)//(nchannels*dtype.itemsize))
+        if nwhitened < nsamples:
+                raise ValueError(f'{whitened_file} has {nwhitened} samples, {binaryfilepath} has {nsamples}.')
+        dat = np.memmap(binaryfilepath, dtype = dtype, mode = 'r+', shape = (nsamples, nchannels))
+        whitened = np.memmap(whitened_file, dtype = dtype, mode = 'r', shape = (nwhitened, nchannels))
+        # kilosort whitens rows of samples: whitened = data @ Wrot
+        unwhitening = np.linalg.inv(np.asarray(whitening_matrix, dtype = np.float64)).astype(np.float32)
+        limits = np.iinfo(dtype)
+        def unwhiten(start):
+                end = min(start + chunksize, nsamples)
+                X = np.asarray(whitened[start:end], dtype = np.float32) @ unwhitening
+                dat[start:end] = np.clip(np.round(X), limits.min, limits.max).astype(dtype)
+        Parallel(n_jobs = n_jobs, backend = 'threading')(
+                delayed(unwhiten)(start) for start in tqdm(range(0, nsamples, chunksize),
+                                                           desc = 'Unwhitening the kilosort data into the binary file'))
+        dat.flush()
+        del dat, whitened
+
+def kilosort_drift_correct_binary(binaryfilepath, ops, nchannels, dtype = 'int16', device = 'cuda', n_jobs = 4):
+        '''Apply the Kilosort 4 drift correction to a binary file, in place.
+
+        Each batch of ``ops['batch_size']`` samples is multiplied by the drift
+        matrix of that batch (``kilosort.preprocessing.get_drift_matrix``) on the
+        channels of the probe channel map, as Kilosort does before sorting.  The
+        whitening is left out, so the data keep their units.  ``n_jobs`` joblib
+        threads correct batches at the same time; each batch writes only its own samples.
+        '''
+        import torch
+        from kilosort.preprocessing import get_drift_matrix
+        dtype = np.dtype(dtype)
+        nsamples = int(os.path.getsize(binaryfilepath)//(nchannels*dtype.itemsize))
+        dat = np.memmap(binaryfilepath, dtype = dtype, mode = 'r+', shape = (nsamples, nchannels))
+        chanmap = np.asarray(ops['probe']['chanMap'], dtype = int)
+        if np.array_equal(chanmap, np.arange(nchannels)):
+                chanmap = slice(None) # all channels, read and write without copying the columns
+        batch_size = int(ops['batch_size'])
+        first_sample = int(ops['settings'].get('tmin', 0)*ops['fs'])
+        limits = np.iinfo(dtype)
+        def correct_batch(ibatch):
+                start = first_sample + ibatch*batch_size
+                end = min(start + batch_size, nsamples)
+                if start >= end:
+                        return
+                M = get_drift_matrix(ops, ops['dshift'][ibatch], device = device)
+                X = torch.from_numpy(np.asarray(dat[start:end, chanmap], dtype = np.float32)).to(device)
+                X = (M.to(X.dtype) @ X.T).T
+                dat[start:end, chanmap] = np.clip(np.round(X.cpu().numpy()), limits.min, limits.max).astype(dtype)
+        # threads share the memmap and the device
+        from joblib import Parallel, delayed
+        Parallel(n_jobs = n_jobs, backend = 'threading')(
+                delayed(correct_batch)(ibatch) for ibatch in tqdm(range(len(ops['dshift'])),
+                                                                  desc = 'Drift correcting the binary file'))
+        dat.flush()
+        del dat
 
 def kilosort_post_processing(resultsfolder,
                              sessionfolder,
@@ -423,10 +507,11 @@ load(fullfile('{output_folder}','chanMap.mat'))
 rez = preprocessDataSub(ops);
 rez = datashift2(rez, ops.doCorrection); % last input is for shifting data
 % keep the drift estimate that was applied (yblk is only there when datashift2 stores it)
+% and the whitening matrix, to unwhiten the drift corrected temp_wh.dat
 if ops.doCorrection && isfield(rez,'dshift')
-    dshift = rez.dshift; NT = rez.ops.NT; yblk = [];
+    dshift = rez.dshift; NT = rez.ops.NT; Wrot = rez.Wrot; yblk = [];
     if isfield(rez.ops,'yblk'), yblk = rez.ops.yblk; end
-    save(fullfile('{output_folder}','drift.mat'),'dshift','yblk','NT');
+    save(fullfile('{output_folder}','drift.mat'),'dshift','yblk','NT','Wrot');
 end
 
 % ORDER OF BATCHES IS NOW RANDOM, controlled by random number generator
@@ -455,10 +540,11 @@ load(fullfile('{output_folder}','chanMap.mat'))
 rez = preprocessDataSub(ops);
 rez = datashift2(rez, ops.doCorrection); % last input is for shifting data
 % keep the drift estimate that was applied (yblk is only there when datashift2 stores it)
+% and the whitening matrix, to unwhiten the drift corrected temp_wh.dat
 if ops.doCorrection && isfield(rez,'dshift')
-    dshift = rez.dshift; NT = rez.ops.NT; yblk = [];
+    dshift = rez.dshift; NT = rez.ops.NT; Wrot = rez.Wrot; yblk = [];
     if isfield(rez.ops,'yblk'), yblk = rez.ops.yblk; end
-    save(fullfile('{output_folder}','drift.mat'),'dshift','yblk','NT');
+    save(fullfile('{output_folder}','drift.mat'),'dshift','yblk','NT','Wrot');
 end
 
 [rez, st3, tF] = extract_spikes(rez);

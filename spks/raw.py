@@ -807,7 +807,9 @@ def dredge_motion_correct_across_sessions(binaryfilepath,metadata,segment_durati
     shanks = np.unique(metadata['channel_shank'])
     job_kwargs = dict(chunk_duration="1s", n_jobs=n_jobs, progress_bar=True)
     tmp_folder = Path(binaryfilepath).parent
-    concat_offsets = np.cumsum([0]+[seg_duration for o in metadata['file_offsets']])
+    # the start of each session goes in a short recording, all of it when the session is shorter
+    seg_durations = [int(min(seg_duration, e - o)) for o,e in metadata['file_offsets']]
+    concat_offsets = np.cumsum([0] + seg_durations)
 
     from spikeinterface.preprocessing import bandpass_filter
     from spikeinterface.full import correct_motion
@@ -845,25 +847,34 @@ def dredge_motion_correct_across_sessions(binaryfilepath,metadata,segment_durati
             #peak_locations = correct_motion_on_peaks(motion_info['peaks'], motion_info['peak_locations'], motion_info['motion'],rec)
             # prepare the correction 
             concat_offset = concat_offsets[irec]
-            # TODO: make this work for short sessions.
-            for no,ne in tqdm(chunk_indices(np.arange(seg_duration)),desc = f'Saving trimmed traces shank {shank}'):
+            for no,ne in tqdm(chunk_indices(np.arange(seg_durations[irec])),desc = f'Saving trimmed traces shank {shank}'):
                 trimmed_bin[concat_offset+no:concat_offset+ne] = recording_corrected.get_traces(
                         segment_index=0,
                         start_frame = no, 
                         end_frame=ne).round().astype('int16')
         trimmed_rec = load_spks_binary_to_spikeinterface(trimmed_filename,trimmed_meta)
-        _ , motion_info_trimmed = correct_motion(trimmed_rec, preset='dredge',
-                                                    output_motion_info=True, **job_kwargs) 
-        # correct the motion for each
-        t = motion_info_trimmed['motion'].temporal_bins_s[0]
-        d = motion_info_trimmed['motion'].displacement[0]
+        # align the sessions: a rigid estimate first, it searches up to a quarter of the shank so
+        # it follows large shifts between sessions, then a nonrigid estimate on top for what is
+        # left along the depth (it searches up to a quarter of the window)
+        rigid_rec, motion_info_rigid = correct_motion(trimmed_rec, preset='dredge',
+                                                      estimate_motion_kwargs = dict(rigid = True),
+                                                      output_motion_info=True, **job_kwargs)
+        _ , motion_info_nonrigid = correct_motion(rigid_rec, preset='dredge',
+                                                  output_motion_info=True, **job_kwargs)
+        def session_offset(motion_trimmed, irec):
+            # median displacement over the bins of this session in the short recording
+            t = motion_trimmed.temporal_bins_s[0]
+            ii = (t > concat_offsets[irec]/metadata['sampling_rate']) & (t < concat_offsets[irec+1]/metadata['sampling_rate'])
+            return np.median(motion_trimmed.displacement[0][ii], axis = 0)
         for irec,(o,e) in enumerate(metadata['file_offsets']):
-            t = motion_info_trimmed['motion'].temporal_bins_s[0]
-            d = motion_info_trimmed['motion'].displacement[0]
-            ii = (t> concat_offsets[irec]/metadata['sampling_rate']) & (t< concat_offsets[irec+1]/metadata['sampling_rate']) 
-            d = np.median(d[ii],axis = 0)
-            print(f'Recording {irec} for {shank} has {d} um shift.')
-            motion_objs[irec]['motion'].displacement[0] = (motion_objs[irec]['motion'].displacement[0] + d)
+            session_motion = motion_objs[irec]['motion']
+            rigid_offset = session_offset(motion_info_rigid['motion'], irec)
+            # nonrigid residual on the depth bins of this session
+            residual = np.interp(session_motion.spatial_bins_um,
+                                 motion_info_nonrigid['motion'].spatial_bins_um,
+                                 session_offset(motion_info_nonrigid['motion'], irec))
+            print(f'Recording {irec} for {shank} has {rigid_offset} um rigid shift and {residual} um residual.')
+            session_motion.displacement[0] = session_motion.displacement[0] + rigid_offset + residual
         # correct the offset in the raw concatenated file
         #                                                
         def _interpolate_rec_parallel(ori_start,new_start,new_end,out,recording_corrected,channels):
@@ -889,6 +900,11 @@ def dredge_motion_correct_across_sessions(binaryfilepath,metadata,segment_durati
                 channels = np.array(metadata['channel_idx'])[chan_sel].astype(int)) 
                 for no,ne in tqdm(chunk_indices(np.arange(rec_corrected.get_num_frames())),
                             desc = f'Saving corrected binary file from shank {shank}'))
+        # save with times from the start of each session (a slice can keep the time of the whole file)
+        for irec,(o,e) in enumerate(metadata['file_offsets']):
+            session_motion = motion_objs[irec]['motion']
+            session_start = entire_rec.frame_slice(start_frame=int(o), end_frame=int(e)).get_start_time()
+            session_motion.temporal_bins_s[0] = session_motion.temporal_bins_s[0] - session_start
         np.save(Path(binaryfilepath).parent/f'motion_shank{shank}.npy', motion_objs)
     return binaryfilepath
     
