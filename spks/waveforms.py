@@ -4,56 +4,159 @@ from .utils import *
 ##########WAVEFORM METRICS AND ANALYSIS#################
 ########################################################
 
-def waveforms_position(waveforms,channel_positions, 
-                       active_electrode_threshold = 3,
-                       max_waveform_extent = 100):
-    ''' 
-    Calculates the position of a unit in a set of channels using the center of mass.
-    Considers only electrodes that have over active_electrode_threshold (3) mad and 
-    are within max_waveform_extent (100um) from the principal (max) electrode.
+def channel_neighbours(channel_positions, max_gap = 1):
+    '''
+    Which channels of a probe are next to each other, for any layout of the channels.
 
-    Using the max_waveform_extent is useful when there is noise in the recording. 
+    Two channels are neighbours when they share an edge of the Delaunay
+    triangulation of the channel positions (their natural neighbours), so the
+    neighbours follow the layout even when the spacing is irregular.  Edges over
+    3 times the median distance between nearest channels are left out, so
+    channels on different shanks or across a gap in the layout are not
+    neighbours.  With max_gap, channels with up to max_gap channels between them
+    are also neighbours.
 
-    centerofmass,peak_channels = waveforms_position(waveforms,channel_positions)
+    neighbours = channel_neighbours(channel_positions, max_gap = 1)
 
     Inputs
     ------
-    waveforms : array [ncluster x nsamples x nchannels]
-        average waveform for a cluster 
     channel_positions : array [nchannels x 2]
-        x and y coordinates of each channel
-    
+        x and y coordinates of each channel (um)
+    max_gap : int
+        number of channels allowed between two neighbours (default 1)
+
     Return
     -------
-    centerofmass: array [nchannels x 2]
-        center of mass of the waveforms 
-    peak_channels array [nchannels x 1]
-        peak channel of the waveform (the argmax of the absolute amplitude)
+    neighbours : bool array [nchannels x nchannels]
+        True for neighbours (and on the diagonal)
+    '''
+    from scipy.spatial import Delaunay
+    from scipy.spatial.distance import cdist
+    positions = np.asarray(channel_positions, dtype = float)
+    nchannels = len(positions)
+    distance = cdist(positions, positions)
+    edges = np.zeros((nchannels, nchannels), dtype = bool)
+    if nchannels > 1:
+        try:
+            simplices = Delaunay(positions).simplices
+            for a, b in ((0, 1), (0, 2), (1, 2)):
+                edges[simplices[:, a], simplices[:, b]] = True
+        except Exception:
+            # all channels on one line (or fewer than 3): link them in order along the line
+            centered = positions - positions.mean(axis = 0)
+            direction = np.linalg.svd(centered, full_matrices = False)[2][0]
+            order = np.argsort(centered @ direction)
+            edges[order[:-1], order[1:]] = True
+        edges |= edges.T
+        nearest = np.where(distance > 0, distance, np.inf).min(axis = 1)
+        nearest = nearest[np.isfinite(nearest)]
+        if len(nearest):
+            edges &= distance <= 3*np.median(nearest)
+        edges |= distance == 0   # channels at the same position
+    neighbours = edges | np.eye(nchannels, dtype = bool)
+    steps = edges.astype(np.float32)
+    for _ in range(int(max_gap)):  # one more channel between neighbours
+        neighbours = neighbours | ((neighbours.astype(np.float32) @ steps) > 0)
+    return neighbours
+
+def waveforms_footprint(waveforms, channel_positions, threshold = 0.2, max_gap = 1):
+    '''
+    The channels each waveform spans, its position and its extent on the probe.
+
+    The active electrodes of a waveform are the channels with a peak-to-peak of
+    at least threshold (20%) of the peak-to-peak on the peak channel, reached
+    from the peak channel through neighbouring channels that also pass, allowing
+    max_gap (1) channels that do not pass in between (see channel_neighbours).
+    The threshold is relative, so it does not depend on the amplitude or the
+    noise, and a waveform that is about as large on every channel (e.g.
+    electrical noise) spans every channel of the shank.  Channels that pass but
+    are far from the peak (e.g. a broken channel) are not active.
+
+    center_of_mass, peak_channels, active_electrodes, span_um = waveforms_footprint(waveforms, channel_positions)
+
+    Inputs
+    ------
+    waveforms : array [nclusters x nsamples x nchannels]
+        average or median waveform of each cluster
+    channel_positions : array [nchannels x 2]
+        x and y coordinates of each channel (um)
+    threshold : float
+        fraction of the peak-to-peak of the peak channel (default 0.2)
+    max_gap : int
+        number of channels below threshold allowed in between (default 1)
+
+    Return
+    -------
+    center_of_mass : array [nclusters x 2]
+        position of each waveform: the center of the active electrodes,
+        weighted by the peak-to-peak (NaN for empty waveforms)
+    peak_channels : array [nclusters]
+        channel with the largest peak-to-peak
+    active_electrodes : list of arrays
+        channel indices of the active electrodes (empty for empty waveforms)
+    span_um : array [nclusters]
+        largest distance between two active electrodes (um); 0 for one channel
 
     Joao Couto - spks 2023
     '''
-
-    nclusters, nsamples, nchannels = waveforms.shape
-    N = int(nsamples/4)
-    peak_to_peak = waveforms.max(axis=1) - waveforms.min(axis=1)
-    # get the threshold from the median_abs_deviation
-    channel_mad = np.median(peak_to_peak/0.6745, axis = 1)
-    active_electrodes = []
-    center_of_mass = []
-    peak_channels = []
-    for i,w in enumerate(peak_to_peak):
-        peak_channels.append(np.argmax(w)) # the peak channel is the index of the channel that has the largest deflection
-        idx = np.where(
-            (w>(channel_mad[i]*active_electrode_threshold)) & 
-            (np.linalg.norm(channel_positions - channel_positions[np.argmax(w)],axis = 1) < max_waveform_extent))[0]
-        active_electrodes.append(idx)
-        if not len(idx): # then there are no active channels..
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import breadth_first_order
+    waveforms = np.asarray(waveforms)
+    positions = np.asarray(channel_positions, dtype = float)
+    neighbours = channel_neighbours(positions, max_gap = max_gap)
+    peak_to_peak = np.nan_to_num(waveforms.max(axis = 1) - waveforms.min(axis = 1), nan = 0.)
+    center_of_mass, peak_channels, active_electrodes, span_um = [], [], [], []
+    for ptp in peak_to_peak:
+        peak = int(np.argmax(ptp)) # the peak channel is the index of the channel that has the largest deflection
+        peak_channels.append(peak)
+        if not ptp[peak] > 0:  # an empty waveform
+            active_electrodes.append(np.zeros(0, dtype = int))
             center_of_mass.append([np.nan]*2)
+            span_um.append(np.nan)
             continue
-        # compute the center of mass (X,Y) of the waveforms using only significant peaks
-        com = [w[idx]*pos for pos in channel_positions[idx].T]
-        center_of_mass.append(np.sum(com,axis = 1)/np.sum(w[idx]))
-    return np.array(center_of_mass), np.array(peak_channels), active_electrodes 
+        passing = np.where(ptp >= threshold*ptp[peak])[0]
+        reached = breadth_first_order(csr_matrix(neighbours[np.ix_(passing, passing)]),
+                                      int(np.searchsorted(passing, peak)),
+                                      directed = False, return_predecessors = False)
+        active = np.sort(passing[reached])
+        active_electrodes.append(active)
+        weights = ptp[active]
+        center_of_mass.append(np.sum(weights[:, None]*positions[active], axis = 0)/np.sum(weights))
+        extent = positions[active]
+        span_um.append(float(np.max(np.linalg.norm(extent[:, None] - extent[None], axis = -1))))
+    return np.array(center_of_mass), np.array(peak_channels), active_electrodes, np.array(span_um)
+
+def waveforms_position(waveforms, channel_positions, threshold = 0.2, max_gap = 1):
+    '''
+    Position, peak channel and active electrodes of each waveform.
+
+    The center of mass of the active electrodes; see waveforms_footprint, which
+    also gives the extent (span_um) of each waveform.
+
+    center_of_mass, peak_channels, active_electrodes = waveforms_position(waveforms, channel_positions)
+
+    Inputs
+    ------
+    waveforms : array [nclusters x nsamples x nchannels]
+        average or median waveform of each cluster
+    channel_positions : array [nchannels x 2]
+        x and y coordinates of each channel (um)
+    threshold : float
+        fraction of the peak-to-peak of the peak channel (default 0.2)
+    max_gap : int
+        number of channels below threshold allowed in between (default 1)
+
+    Return
+    -------
+    center_of_mass : array [nclusters x 2]
+    peak_channels : array [nclusters]
+    active_electrodes : list of arrays
+
+    Joao Couto - spks 2023
+    '''
+    center_of_mass, peak_channels, active_electrodes, _ = waveforms_footprint(
+        waveforms, channel_positions, threshold = threshold, max_gap = max_gap)
+    return center_of_mass, peak_channels, active_electrodes
 
 def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100, trough_window = 0.5):
     '''
@@ -194,25 +297,14 @@ def compute_waveform_metrics(waveform,npre,srate,upsampling_factor = 100, trough
     return wavemetrics
 
 
-def estimate_active_channels(cluster_waveforms_mean,madthresh = 2.5):
+def estimate_active_channels(cluster_waveforms_mean, channel_positions, threshold = 0.2, max_gap = 1):
     '''
-    Estimates the active channels by comparing the average waveform peak 
-    '''
-    nclusters,nsamples,nchannels = cluster_waveforms_mean.shape
-    N = int(nsamples/3)
-    peak_amp = [mwave[nsamples//2-N:nsamples//2+N,:].max(axis=0) - 
-                mwave[nsamples//2-N:nsamples//2+N,:].min(axis=0)
-            for mwave in cluster_waveforms_mean]
-    
-    # get the threshold from the median_abs_deviation
-    channel_mad = np.median(peak_amp)/0.6745
-    # "active" channels
-    activeidx = []
-    for p in peak_amp:
-            activeidx.append(np.where(p>channel_mad*madthresh)[0])
+    The active electrodes of each waveform; see waveforms_footprint.
 
-    nactive_channels = np.array([len(a) for a in activeidx]).astype(np.uint32) # not used
-    return activeidx
+    activeidx = estimate_active_channels(cluster_waveforms_mean, channel_positions)
+    '''
+    return waveforms_footprint(cluster_waveforms_mean, channel_positions,
+                               threshold = threshold, max_gap = max_gap)[2]
 
 
 ########################################################

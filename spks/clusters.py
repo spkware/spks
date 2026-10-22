@@ -287,8 +287,8 @@ class Clusters():
 
         if not self.cluster_waveforms_mean is None:  # compute only if there are mean waveforms
             # compute the position of each cluster and the principal channel
-            from .waveforms import waveforms_position
-            self.cluster_position, self.cluster_channel, active_electrodes = waveforms_position(
+            from .waveforms import waveforms_footprint
+            self.cluster_position, self.cluster_channel, active_electrodes, span_um = waveforms_footprint(
                 self.cluster_waveforms_mean,
                 self.channel_positions)
             self.cluster_info['depth'] = self.cluster_position[:,1]
@@ -312,10 +312,9 @@ class Clusters():
                 clumetrics.append(dict(cluster_id = iclu,
                                 **compute_waveform_metrics(wave,npre=npre,srate=srate)))
             clumetrics = pd.DataFrame(clumetrics)
-            activeidx = estimate_active_channels(self.cluster_waveforms_mean)
-            nactive_channels = np.array([len(a) for a in activeidx])
-            clumetrics['n_active_channels'] = nactive_channels
-            clumetrics['active_channels'] = activeidx
+            clumetrics['n_active_channels'] = np.array([len(a) for a in active_electrodes])
+            clumetrics['active_channels'] = active_electrodes
+            clumetrics['span_um'] = span_um
             self.cluster_info = pd.merge(self.cluster_info,clumetrics)
         if not self.cluster_info is None and not self.cluster_waveforms_mean is None: # save if the folder exists to make it faster to load
             if self.folder.exists():

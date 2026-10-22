@@ -14,7 +14,31 @@ def read_mux(mux_table):
                           for group in mux_table[1:]]
     return n_adc,n_channels_per_adc,adc_channel_groups
 
-def read_imro(imro):
+def fixed_ap_gain(probe_type, meta = None):
+    '''
+    AP gain of the probes without gains in the imro table (NP2.0 and later).
+
+    The gain is imChan0apGain of the metadata when present; otherwise the gain in
+    the imro header for UHD probes (type 1110), 80 for the NP2.0 development
+    probes (types 21 and 24) and 100 for the others, as ChanGainsIM of the
+    SpikeGLX readSGLX tools.
+    '''
+    if not meta is None and 'imChan0apGain' in meta.keys():
+        return float(meta['imChan0apGain'])
+    if probe_type == 1110 and not meta is None and 'imroTbl' in meta.keys():
+        # (type,colmode,refid,apgain,lfgain,aphipass)
+        return float(meta['imroTbl'][0].split(',')[3])
+    if probe_type in [21,24]:
+        return 80.
+    return 100.
+
+def read_imro(imro, ap_gain = None):
+    '''
+    Parse the imro table of a SpikeGLX metadata file.
+
+    ap_gain is the gain of the probes without gains in the table (see fixed_ap_gain);
+    default fixed_ap_gain(probe_type).
+    '''
     probe_type,nchannels = [int(i.replace('NP','')) for i in imro[0].split(',')][:2]
     
     if not probe_type in [0,1020,1030,1100,1120,1121,1122,1123,1200,1300, # NP 1.0-like
@@ -46,8 +70,10 @@ def read_imro(imro):
         keys = keys[:len(imro_table[0])]
     # Add fixed gain for 2.0 probes
     if not 'ap_gain' in keys:
+        if ap_gain is None:
+            ap_gain = fixed_ap_gain(probe_type)
         keys.append('ap_gain')
-        [imro_table[i].append(80) for i in range(len(imro_table))]
+        [imro_table[i].append(ap_gain) for i in range(len(imro_table))]
     if not 'shank_id' in keys:  # other probes get shank_id of 0
         keys.append('shank_id')
         [imro_table[i].append(0) for i in range(len(imro_table))]
@@ -99,7 +125,9 @@ def read_spikeglx_meta(metafile):
     elif 'niAiRangeMax' in meta.keys():
         meta['conversion_factor_microV'] = 1e6*float(meta['niAiRangeMax'])/32768
     if 'imroTbl' in meta.keys():
-        meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'])
+        probe_type = [int(i.replace('NP','')) for i in meta['imroTbl'][0].split(',')][0]
+        meta['probe_type'],meta['nchannels'],meta['imro_table'] = read_imro(meta['imroTbl'],
+                                                                            ap_gain = fixed_ap_gain(probe_type, meta))
         meta['conversion_factor_microV'] = meta['conversion_factor_microV']/meta['imro_table']['ap_gain'].values
         if 'channel_idx' in meta.keys():
             # This is so it works with the ULTRA alphas..
